@@ -1,0 +1,24 @@
+{
+    "name": "lbrugnara/dml",
+    "type": "library",
+    "description": "A PHP implementation of the Document Markup Language",
+    "keywords": ["dml","markup","language"],
+    "homepage": "https://github.com/lbrugnara/php-dml",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Leo Brugnara",
+            "email": "lfbrugnara@gmail.com",
+            "homepage": "https://leobrugnara.me",
+            "role": "Developer"
+        }
+    ],
+    "require": {
+        "php": ">=7.3.8"
+    },
+    "autoload": {
+        "psr-4": {
+            "Dml\\": "src/"
+        }
+    }
+}
