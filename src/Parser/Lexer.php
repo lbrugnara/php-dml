@@ -57,10 +57,10 @@ class Lexer
             Lexeme::Header2         => 0,
             Lexeme::Header3         => 0,
             Lexeme::Header4         => 0,
-            Lexeme::Ulist1          => 0,
-            Lexeme::Ulist2          => 0,
-            Lexeme::Ulist3          => 0,
-            Lexeme::Olist1          => 0,
+            Lexeme::UList1          => 0,
+            Lexeme::UList2          => 0,
+            Lexeme::UList3          => 0,
+            Lexeme::OList1          => 0,
             Lexeme::Blockquote      => 0,
             Lexeme::Pipe            => 0,
             Lexeme::Reference       => 0,
@@ -233,39 +233,85 @@ class Lexer
         if (!$this->hasInput())
             return $this->EOFToken;
 
-        $token = $this->checkNewline()
-                // Block
-                ?? $this->checkThematicBreak()
-                ?? $this->checkIndentation()
-                ?? $this->checkListItem()
-                ?? $this->checkTodoListItem()
-                ?? $this->checkNumberedListItem()
-                ?? $this->checkLabeledListItem()
-                ?? $this->checkPreformatted()
-                ?? $this->checkBlockquote()
-                ?? $this->checkHeader()
-                ?? $this->checkCodeBlock()
-                ?? $this->checkDmlCodeBlock()
-                ?? $this->checkCodeBlockLang()
-                ?? $this->checkEscapeBlock()
-                ?? $this->checkReference()
-                // Inline elements
-                ?? $this->checkLt()
-                ?? $this->checkEscape()
-                ?? $this->checkColon()
-                ?? $this->checkPipe()
-                ?? $this->checkLink()
-                ?? $this->checkImage()
-                ?? $this->checkBold()
-                ?? $this->checkInlineCode()
-                ?? $this->checkItalic()
-                ?? $this->checkUnderlined()
-                ?? $this->checkStrikethrough();
+        $c = $this->peekChar();
+        switch ($c)
+        {
+            case '=':
+                return $this->checkHeader();            // = (multiple)
+            
+            case '~':
+                return $this->checkStrikethrough()      // ~~
+                        ?? $this->checkHeader();        // ~ (multiple)
 
-        if ($token === NULL)
-            return NULL;
+            case '-':
+                return $this->checkThematicBreak()      // - - -
+                        ?? $this->checkListItem()       // -
+                        ?? $this->checkHeader();        // - (multiple)
+            
+            case '`':
+                return $this->checkCodeBlock()          // ```
+                        ?? $this->checkEscapeBlock()    // ``
+                        ?? $this->checkHeader()         // ` (multiple)
+                        ?? $this->checkInlineCode();    // `
 
-        return $token;
+            case '+':
+                return $this->checkListItem();          // +
+
+            case '*':
+                return $this->checkListItem();          // *
+
+            case '#':
+                return $this->checkListItem();          // #
+
+            case '>':
+                return $this->checkBlockquote();        // > (multiple)
+
+            case '!':
+                return $this->checkDmlCodeBlock();      // !```
+
+            case '|':
+                return $this->checkReference()          // |
+                        ?? $this->checkPipe();          // |
+
+            case ':':
+                return $this->checkColon();             // :
+
+            case "\n":
+                return $this->checkNewline();           // \n and \n\n
+
+            case "\t":
+                return $this->checkIndentation();       // \t
+
+            case "\\":
+                return  $this->checkEscape();           // \\
+
+            case '/':
+                return $this->checkItalic();            // //
+
+            case '´':
+                return $this->checkItalic();            // ´
+
+            case '_':
+                return $this->checkUnderlined();        // __
+
+            case '[':
+            case ']':
+                return $this->checkLink()               // [[
+                        ?? $this->checkImage()          // [{
+                        ?? $this->checkTodoListItem()   // [ ] , [x] , [X] 
+                        ?? $this->checkBold();          // [
+
+            case '<':
+                return $this->checkLt();                // <
+
+            default:
+                if (\is_numeric($c))
+                    return $this->checkNumberedListItem();  // 1. , 1) 
+
+                return $this->checkLabeledListItem()        // a. , b. , A. , B. 
+                        ?? $this->checkPreformatted()       // \t or \s{4}
+                        ?? $this->checkCodeBlockLang();     // (string following a ```)
+        }
     }
 
     private function getNextTextToken() : ?Token

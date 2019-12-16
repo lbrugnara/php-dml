@@ -28,22 +28,22 @@ class Lexeme {
     /**
      * @var string
      */
-    const Ulist1 = "-";        
+    const UList1 = "-";        
 
     /**
      * @var string
      */
-    const Ulist2 = "+";
+    const UList2 = "+";
 
     /**
      * @var string
      */
-    const Ulist3 = "*";
+    const UList3 = "*";
 
     /**
      * @var string
      */
-    const Olist1 = "#";        
+    const OList1 = "#";        
 
     /**
      * @var string
@@ -173,17 +173,17 @@ class Lexeme {
     /**
      * @var array
      */
-    public const Lists = [ self::Ulist1, self::Ulist2, self::Ulist3, self::Olist1 ];
+    public const Lists = [ self::UList1, self::UList2, self::UList3, self::OList1 ];
 
     public const Lengths = [
         self::Header1           => 1,
         self::Header2           => 1,
         self::Header3           => 1,
         self::Header4           => 1,
-        self::Ulist1            => 1,        
-        self::Ulist2            => 1,
-        self::Ulist3            => 1,
-        self::Olist1            => 1,        
+        self::UList1            => 1,        
+        self::UList2            => 1,
+        self::UList3            => 1,
+        self::OList1            => 1,        
         self::ThematicBreak     => 5,
         self::Blockquote        => 1,
         self::Codeblock         => 3,
