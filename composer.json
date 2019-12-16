@@ -1,6 +1,7 @@
 {
     "name": "lbrugnara/dml",
     "type": "library",
+    "version": "0.1.0",
     "description": "A PHP implementation of the Document Markup Language",
     "keywords": ["dml","markup","language"],
     "homepage": "https://github.com/lbrugnara/php-dml",
