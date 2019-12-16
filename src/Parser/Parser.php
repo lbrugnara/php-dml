@@ -39,19 +39,20 @@ class Parser
      * @var array<int, Closure>
      */
     private $inlineParsers;
-
+   
     /**
-     * @var \Dml\Token[]
+     * Parsed elements
+     *
+     * @var \Dml\Parser\Elements\Element[]
      */
-    private $tokens;
-
-    /**
-     * @var int
-     */
-    private $index;
-
     private $output;
 
+    /**
+     * Lexer
+     *
+     * @var \Dml\Parser\Lexer
+     */
+    private $lexer;    
 
     public function __construct()
     {
@@ -86,34 +87,24 @@ class Parser
 
     public function parse(string $source, ParsingContext $ctx = NULL) : Document
     {
-        $lexer = new Lexer($source);
-        return $this->internalParse($lexer->tokenize(), $ctx);
-    }
-
-    private function internalParse(array $tokens, ParsingContext $ctx = NULL) : Document
-    {
-        $this->tokens = $tokens;
-        $this->index = 0;
+        $this->lexer = new Lexer($source);
 
         $document = $this->parseDocument($ctx ?? new ParsingContext());
-
-        $this->tokens = NULL;
-        $this->index = 0;
 
         return $document;
     }
 
     private function hasInput() : bool
     {
-        return $this->tokens !== NULL && $this->index < count($this->tokens);
+        return $this->lexer->hasInput();
     }
 
     private function peekToken(int $offset = 0) : ?Token
     {
-        if (!$this->hasInput() || $this->index + $offset > count($this->tokens))
+        if (!$this->lexer->hasInput())
             return NULL;
 
-        return $this->tokens[$this->index + $offset];
+        return $this->lexer->peekToken($offset);
     }
 
     private function consumeToken() : ?Token
@@ -121,7 +112,7 @@ class Parser
         if (!$this->hasInput())
             return NULL;
 
-        return $this->tokens[$this->index++];
+        return $this->lexer->nextToken();
     }
 
     private function last(array $arr, $default = NULL)
@@ -562,7 +553,10 @@ class Parser
 
         // Process previous source to get the rendered version
         $parser = new Parser();
-        $doc = $parser->internalParse($source);
+        $source_str = "";
+        foreach ($source as $token)
+            $source_str .= $token->originalValue ?? $token->value;
+        $doc = $parser->parse($source_str);
 
         // Get body's children of the parsed document
         foreach ($doc->body->getChildren() as $child)
@@ -836,7 +830,7 @@ class Parser
         // // Disable the markup processing. Save the markup processing state
         $oldMarkupProcessingState = $ctx->setMarkupStatus(false);
 
-        while ($this->HasTokens)
+        while ($this->hasInput())
         {
             $token = $this->PeekToken();
 

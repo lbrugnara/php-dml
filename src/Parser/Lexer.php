@@ -2,183 +2,19 @@
 
 namespace Dml\Parser;
 
-class Lexer {
-
-    // Markup tags
-    /**
-     * @var string
-     */
-    const Header1 = "=";
-
-    /**
-     * @var string
-     */
-    const Header2 = "~";
-
-    /**
-     * @var string
-     */
-    const Header3 = "-";
-
-    /**
-     * @var string
-     */
-    const Header4 = "`";
-
-    /**
-     * @var string
-     */
-    const Ulist1 = "-";        
-
-    /**
-     * @var string
-     */
-    const Ulist2 = "+";
-
-    /**
-     * @var string
-     */
-    const Ulist3 = "*";
-
-    /**
-     * @var string
-     */
-    const Olist1 = "#";        
-
-    /**
-     * @var string
-     */
-    const ThematicBreak = "- - -";
-
-    /**
-     * @var string
-     */
-    const Blockquote = ">";
-
-    /**
-     * @var string
-     */
-    const Codeblock = "```";
-
-    /**
-     * @var string
-     */
-    const DmlCodeblock = "!```";        
-
-    /**
-     * @var string
-     */
-    const Pipe = "|";
-
-    /**
-     * @var string
-     */
-    const Reference = "|";
-
-    /**
-     * @var string
-     */
-    const Colon = ":";
-
-    /**
-     * @var string
-     */
-    const InlineCode = "`";
-
-    /**
-     * @var string
-     */
-    const EscapeBlock = "``";
-
-    /**
-     * @var string
-     */
-    const Escape = "\\";
-
-    /**
-     * @var string
-     */
-    const Indent = "\t";
-
-    /**
-     * @var string
-     */
-    const NewLine = "\n";
-
-    /**
-     * @var string
-     */
-    const DoubleNewLine = "\n\n";
-
-    /**
-     * @var string
-     */
-    const Italic = "//";
-
-    /**
-     * @var string
-     */
-    const Italic2 = "´";
-
-    /**
-     * @var string
-     */
-    const Underline = "__";
-
-    /**
-     * @var string
-     */
-    const Strikethrough = "~~";
-
-    /**
-     * @var string
-     */
-    const BoldOpen = "[";
-
-    /**
-     * @var string
-     */
-    const BoldClose = "]";
-
-    /**
-     * @var string
-     */
-    const LinkOpen = "[[";
-
-    /**
-     * @var string
-     */
-    const LinkClose = "]]";
-
-    /**
-     * @var string
-     */
-    const ImgOpen = "[{";
-
-    /**
-     * @var string
-     */
-        const ImgClose = "}]";
-
-    /**
-     * @var string
-     */
-    const Lt = "<";
-
-    /**
-     * @var array
-     */
-    private const Headers = [ self::Header1, self::Header2, self::Header3, self::Header4 ];
-
-    /**
-     * @var array
-     */
-    private const Lists = [ self::Ulist1, self::Ulist2, self::Ulist3, self::Olist1 ];
-
+class Lexer
+{
     /**
      * @var string
      */
     private $source;
+
+    /**
+     * Source length
+     *
+     * @var int
+     */
+    private $sourceLength;
 
     /**
      * @var int
@@ -196,17 +32,84 @@ class Lexer {
     private $output;
 
     /**
+     * Output buffer length
+     *
+     * @var int
+     */
+    private $outputLength;
+
+    /**
      * @var \Dml\Token
      */
     private $EOFToken;
 
+    /**
+     * Lexical context
+     *
+     * @var \Dml\Parser\LexerContext
+     */
+    private $context;
+
+    
+    private const TextStoppers = [
+        1 => [
+            Lexeme::Header1         => 0,
+            Lexeme::Header2         => 0,
+            Lexeme::Header3         => 0,
+            Lexeme::Header4         => 0,
+            Lexeme::Ulist1          => 0,
+            Lexeme::Ulist2          => 0,
+            Lexeme::Ulist3          => 0,
+            Lexeme::Olist1          => 0,
+            Lexeme::Blockquote      => 0,
+            Lexeme::Pipe            => 0,
+            Lexeme::Reference       => 0,
+            Lexeme::Colon           => 0,
+            Lexeme::InlineCode      => 0,
+            Lexeme::Escape          => 0,
+            Lexeme::Indent          => 0,
+            Lexeme::NewLine         => 0,
+            Lexeme::Italic2         => 0,
+            Lexeme::BoldOpen        => 0,
+            Lexeme::BoldClose       => 0,
+            Lexeme::Lt              => 0,
+        ],
+        
+        2 => [
+            Lexeme::EscapeBlock     => 0,
+            Lexeme::DoubleNewLine   => 0,
+            Lexeme::Italic          => 0,
+            Lexeme::Underline       => 0,
+            Lexeme::Strikethrough   => 0,
+            Lexeme::LinkOpen        => 0,
+            Lexeme::LinkClose       => 0,
+            Lexeme::ImgOpen         => 0,
+            Lexeme::ImgClose        => 0,
+        ],
+        
+        3 => [
+            Lexeme::Codeblock       => 0
+        ],
+        
+        4 => [
+            Lexeme::DmlCodeblock    => 0
+        ],
+        
+        5 => [
+            Lexeme::ThematicBreak   => 0
+        ]
+    ];
+
     public function __construct(string $source)
     {
         $this->source = str_replace("\r", "", $source);
+        $this->sourceLength = strlen($this->source);
         $this->index = 0;
         $this->buffer = [];
         $this->output = [];
+        $this->outputLength = 0;
         $this->EOFToken = new Token(Token::EndOfInput, "EOF", NULL, false);
+        $this->context = new LexerContext();
     }
 
     /**
@@ -227,32 +130,78 @@ class Lexer {
         $this->index = 0;
         $this->buffer = [];
         $this->output = [];
+        $this->outputLength = 0;
 
         return $tokens;
     }
 
+    private function peekChar(int $length = 1) : ?string
+    {
+        if ($this->index >= $this->sourceLength)
+            return NULL;
+
+        if ($this->index + $length >= $this->sourceLength)
+            $length = $this->sourceLength - $this->index;
+            
+        if ($length == 1)
+            return $this->source[$this->index];
+
+        return substr($this->source, $this->index, $length);
+    }
+
+    private function consumeChar(int $length = 1) : ?string
+    {
+        if ($this->index >= $this->sourceLength)
+            return NULL;
+
+        if ($this->index + $length >= $this->sourceLength)
+            $length = $this->sourceLength - $this->index;
+
+        if ($length == 1)
+            $char = $this->source[$this->index];
+        else
+            $char = substr($this->source, $this->index, $length);
+
+        $this->index += $length;
+
+        return $char;
+    }
+
     function hasInput() : bool
     {
-        return $this->index < strlen($this->source);
+        return $this->index < $this->sourceLength || isset($this->buffer[0]);
+    }
+
+    private function isEndOfInput(int $offset = 0) :  bool
+    {
+        return $this->index + $offset >= $this->sourceLength;
+    }        
+
+    private function lastToken() : ?Token
+    {
+        if ($this->outputLength <= 0)
+            return NULL;
+
+        return $this->output[$this->outputLength - 1];
     }
 
     function nextToken() : Token
     {
-        if (count($this->buffer) > 0)
+        if (isset($this->buffer[0]))
         {
             $token = array_shift($this->buffer);
             $this->output[] = $token;
+            $this->outputLength++;
             return $token;
         }
 
         if (!$this->hasInput())
             return $this->EOFToken;
 
-        $token = $this->nextIsMarkupToken() 
-            ? $this->getNextMarkupToken()
-            : $this->getNextTextToken();
+        $token = $this->getNextMarkupToken() ?? $this->getNextTextToken();
 
         $this->output[] = $token;
+        $this->outputLength++;
 
         return $token;
     }
@@ -262,157 +211,197 @@ class Lexer {
         array_unshift($this->buffer, $token);
     }
 
-    public function peekToken() : Token
+    public function peekToken(int $offset = 0) : Token
     {
-        if (count($this->buffer) > 0)
-            return $this->buffer[0];
+        if (isset($this->buffer[$offset]))
+            return $this->buffer[$offset];
 
-        $token = $this->nextToken();
+        if (!$this->hasInput())
+            return NULL;
 
-        array_unshift($this->buffer, $token);
+        do
+        {
+            $token = $this->nextToken();
+            array_unshift($this->buffer, $token);
+        } while ($offset--);
 
         return $token;
     }
 
-    private function nextIsMarkupToken() : bool
-    {
-        return $this->nextMarkupToken(new LexerContext(true)) != NULL;
-    }
-
-    private function getNextMarkupToken() : Token
-    {
-        return $this->nextMarkupToken(new LexerContext(false));
-    }
-
-    private function nextMarkupToken(LexerContext $ctx) : ?Token
+    private function getNextMarkupToken() : ?Token
     {
         if (!$this->hasInput())
             return $this->EOFToken;
 
-        return $this->checkNewline($ctx)
+        $token = $this->checkNewline()
                 // Block
-                ?? $this->checkIndentation($ctx)
-                ?? $this->checkThematicBreak($ctx)
-                ?? $this->checkListItem($ctx)
-                ?? $this->checkTodoListItem($ctx)
-                ?? $this->checkNumberedListItem($ctx)
-                ?? $this->checkLabeledListItem($ctx)
-                ?? $this->checkPreformatted($ctx)
-                ?? $this->checkBlockquote($ctx)
-                ?? $this->checkHeader($ctx)
-                ?? $this->checkCodeBlock($ctx)
-                ?? $this->checkDmlCodeBlock($ctx)
-                ?? $this->checkCodeBlockLang($ctx)
-                ?? $this->checkEscapeBlock($ctx)
-                ?? $this->checkReference($ctx)
+                ?? $this->checkThematicBreak()
+                ?? $this->checkIndentation()
+                ?? $this->checkListItem()
+                ?? $this->checkTodoListItem()
+                ?? $this->checkNumberedListItem()
+                ?? $this->checkLabeledListItem()
+                ?? $this->checkPreformatted()
+                ?? $this->checkBlockquote()
+                ?? $this->checkHeader()
+                ?? $this->checkCodeBlock()
+                ?? $this->checkDmlCodeBlock()
+                ?? $this->checkCodeBlockLang()
+                ?? $this->checkEscapeBlock()
+                ?? $this->checkReference()
                 // Inline elements
-                ?? $this->checkLt($ctx)
-                ?? $this->checkEscape($ctx)
-                ?? $this->checkColon($ctx)                    
-                ?? $this->checkPipe($ctx)
-                ?? $this->checkLink($ctx)
-                ?? $this->checkImage($ctx)
-                ?? $this->checkBold($ctx)
-                ?? $this->checkInlineCode($ctx)
-                ?? $this->checkItalic($ctx)
-                ?? $this->checkUnderlined($ctx)
-                ?? $this->checkStrikethrough($ctx);
+                ?? $this->checkLt()
+                ?? $this->checkEscape()
+                ?? $this->checkColon()
+                ?? $this->checkPipe()
+                ?? $this->checkLink()
+                ?? $this->checkImage()
+                ?? $this->checkBold()
+                ?? $this->checkInlineCode()
+                ?? $this->checkItalic()
+                ?? $this->checkUnderlined()
+                ?? $this->checkStrikethrough();
+
+        if ($token === NULL)
+            return NULL;
+
+        return $token;
     }
 
-    private function getNextTextToken() : Token
+    private function getNextTextToken() : ?Token
     {
         $txt = "";
 
-        while ($this->hasInput() && !$this->nextIsMarkupToken())
-            $txt .= $this->consumeChar();
+        $c = NULL;
+        $pc = NULL;
+        $ppc = NULL;
+        $pppc = NULL;
+        $ppppc = NULL;
+
+        while ($this->hasInput())
+        {
+            // Update the previous occurrences
+            if ($pppc !== NULL)
+                $ppppc = $pppc;
+            if ($ppc !== NULL)
+                $pppc = $ppc;
+            if ($pc !== NULL)
+                $ppc = $pc;
+            if ($c !== NULL)
+                $pc = $c;
+
+            $c = $this->peekChar();
+            
+            // We need to check if the next character (or a string compound with
+            // previous consumed chars) is a possible markup token, for that
+            // we use the "stops" array with the markup tokens.
+            // For every string length, we need to "go back" to check if there is a 
+            // "token match" that could result in a markup token being processed
+            $offset_back = -1;
+            if (isset(self::TextStoppers[5][ $ppppc . $pppc . $ppc . $pc . $c ]))
+            {
+                // At this point we need to go back 4 times to know
+                // if the next token is a markup element
+                $offset_back = 4;
+            }
+            else if (isset(self::TextStoppers[4][ $pppc . $ppc . $pc . $c ]))
+            {
+                // At this point we need to go back 3 times to know
+                // if the next token is a markup element
+                $offset_back = 3;
+            }
+            else if (isset(self::TextStoppers[3][ $ppc . $pc . $c ]))
+            {
+                // At this point we need to go back 2 times to know
+                // if the next token is a markup element
+                $offset_back = 2;
+            }
+            else if (isset(self::TextStoppers[2][ $pc . $c ]))
+            {
+                // At this point we need to go back 2 times to know
+                // if the next token is a markup element
+                $offset_back = 1;
+            }
+            else if (isset(self::TextStoppers[1][$c]))
+            {
+                // At this point we don't need to move the index pointer
+                // as we didn't consume the character being pointed, but we 
+                // do this to trigger the "check markup token" path
+                $offset_back = 0;
+            }
+
+            if ($offset_back >= 0)
+            {
+                $this->index -= $offset_back;
+                $tmp_token = $this->getNextMarkupToken();
+                if ($tmp_token !== NULL)
+                {
+                    // The token being not null means we need to move the pointer
+                    // back to let the next call get it again, but we also need to
+                    // remove the chars that belong to the next token that have been
+                    // already consumed ($pc, $ppc, etc) and are present in the $txt variable
+                    $this->index -= strlen($tmp_token->originalValue ?? $tmp_token->value);
+                    $txt = \substr($txt, 0, strlen($txt) - $offset_back);
+                    break;
+                }
+                // If the token is null, it means the character is a "stopper", but in the current
+                // context, it is NOT a markup token (like a list token "-" that is not preceded by a 
+                // valid starting block)
+            }
+
+            $txt .= $this->consumeChar();            
+        }
+
+        if (strlen($txt) === 0)
+            return NULL;
 
         $token = new Token(Token::Text, $txt);
 
         return $token;
     }
 
-    private function peekChar(int $length = 1) : ?string
-    {
-        if (!$this->hasInput())
-            return NULL;
-
-        if ($this->index + $length >= strlen($this->source))
-            return substr($this->source, $this->index, strlen($this->source) - $this->index);
-
-        return substr($this->source, $this->index, $length);
-    }
-
-    private function consumeChar(int $length = 1) : ?string
-    {
-        $tmp = $this->peekChar($length);
-
-        $this->index += $length;
-
-        return $tmp;
-    }
-
-    private function isEndOfInput(int $index = 0) :  bool
-    {
-        return $this->index + $index >= strlen($this->source);
-    }
-
-    private function last(array $arr, $default = NULL)
-    {
-        $key = array_key_last($arr);
-
-        if ($key === NULL)
-            return $default;
-
-        return $arr[$key];
-    }
-
     private function isValidBlockStart() : bool
     {
-        $key = array_key_last($this->output);
-
-        if ($key === NULL)
-            return false;
-
-        $token = $this->last($this->output, NULL);
-
-        if ($token == NULL || $token->type == Token::NewLine 
-            || $token->type == Token::DoubleNewLine || $token->type == Token::Blockquote)
+        if ($this->outputLength <= 0)
             return true;
 
-        $index = count($this->output) - 1;
+        $index = $this->outputLength - 1;
         while ($index >= 0)
         {
             $token = $this->output[$index--];
 
             // Skip Indentation, Escape and Empty strings
-            if ($token->type == Token::Indentation || $token->type == Token::Escape 
-                || ($token->type == Token::Text && strlen(trim($token->value)) == 0))
+            if ($token->type == Token::Indentation 
+                || $token->type == Token::Escape 
+                || ($token->type == Token::Text && !isset($token->value[0])))
                 continue;
             
             // Break to check for valid start blocks
             break;
         }
 
-        return $token == NULL || $token->type == Token::NewLine 
-            || $token->type == Token::DoubleNewLine || $token->type == Token::Blockquote;
+        return $token == NULL 
+                || $token->type == Token::NewLine 
+                || $token->type == Token::DoubleNewLine 
+                || $token->type == Token::Blockquote;
     }
 
-    private function checkHeader(LexerContext $ctx) : ?Token
+    private function checkHeader() : ?Token
     {
         $lookahead = $this->peekChar(1);
 
-        if (array_search($lookahead, self::Headers, true) === false)
+        if (array_search($lookahead, Lexeme::Headers, true) === false)
             return NULL;
         
         if (!$this->isValidBlockStart())
             return NULL;
 
-        if (count($this->output) == 0)
+        if ($this->outputLength == 0)
             return NULL;
 
         // If previous line is just a newline, it is not a header
-        if (count($this->output) >= 2 && $this->last($this->output)->type == Token::NewLine 
-            && $this->output[count($this->output)-2]->type == Token::NewLine)
+        if ($this->outputLength >= 2 && $this->lastToken()->type == Token::NewLine 
+            && $this->output[$this->outputLength-2]->type == Token::NewLine)
             return NULL;
 
         $tokenval = "";
@@ -421,10 +410,9 @@ class Lexer {
         while (($tmp = $this->peekChar()) == $lookahead || $tmp === " ")
             $tokenval .= $this->consumeChar();
 
-        if (($tmp === self::NewLine || $this->isEndOfInput()) && strlen($tokenval) >= 4)
+        if (($tmp === Lexeme::NewLine || $this->isEndOfInput()) && strlen($tokenval) >= 4)
         {
-            if ($ctx->peek)
-                $this->index -= strlen($tokenval);
+            $this->index -= strlen($tokenval);
 
             return new Token(Token::HeaderStart, $tokenval);
         }
@@ -434,41 +422,41 @@ class Lexer {
         return NULL;
     }
 
-    private function checkThematicBreak(LexerContext $ctx) : ?Token
+    private function checkThematicBreak() : ?Token
     {
         if (!$this->isValidBlockStart())
             return NULL;
 
-        $lookahead = $this->peekChar(strlen(self::ThematicBreak));
+        $lookahead = $this->peekChar(Lexeme::Lengths[Lexeme::ThematicBreak]);
 
-        if ($lookahead === self::ThematicBreak)
-            return new Token(Token::ThematicBreak, $ctx->peek ? $lookahead : $this->consumeChar(strlen(self::ThematicBreak)));
+        if ($lookahead === Lexeme::ThematicBreak)
+            return new Token(Token::ThematicBreak, $this->consumeChar(Lexeme::Lengths[Lexeme::ThematicBreak]));
 
         return NULL;
     }
 
-    private function checkListItem(LexerContext $ctx) : ?Token
+    private function checkListItem() : ?Token
     {
         $lookahead = $this->peekChar(2);
 
         if ($this->isValidBlockStart() && strlen($lookahead) == 2 
-            && array_search($lookahead[0], self::Lists, true) !== NULL && $lookahead[1] === ' ')
-            return new Token(Token::ListItem, $ctx->peek ? $lookahead : $this->consumeChar(2));
+            && array_search($lookahead[0], Lexeme::Lists, true) !== NULL && $lookahead[1] === ' ')
+            return new Token(Token::ListItem, $this->consumeChar(2));
 
         return NULL;
     }
 
-    private function checkTodoListItem(LexerContext $ctx) : ?Token
+    private function checkTodoListItem() : ?Token
     {
         $lookahead = $this->peekChar(4);
 
         if ($this->isValidBlockStart() && ($lookahead === "[ ] " || $lookahead === "[x] " || $lookahead === "[X] "))
-            return new Token(Token::ListItem, $ctx->peek ? $lookahead : $this->consumeChar(4));
+            return new Token(Token::ListItem, $this->consumeChar(4));
 
         return NULL;
     }
 
-    private function checkNumberedListItem(LexerContext $ctx) : ?Token
+    private function checkNumberedListItem() : ?Token
     {
         if (!$this->isValidBlockStart())
             return NULL;
@@ -489,8 +477,7 @@ class Lexer {
         {
             $lookahead = "# ";
 
-            if (!$ctx->peek)
-                $this->consumeChar($i);
+            $this->consumeChar($i);
 
             return new Token(Token::ListItem, $lookahead, $tmp);
         }
@@ -498,7 +485,7 @@ class Lexer {
         return NULL;
     }
 
-    private function checkLabeledListItem(LexerContext $ctx) : ?Token
+    private function checkLabeledListItem() : ?Token
     {
         if (!$this->isValidBlockStart())
             return NULL;
@@ -512,8 +499,7 @@ class Lexer {
             $originalValue = $lookahead;
             $lookahead = "- ";
 
-            if (!$ctx->peek)
-                $this->consumeChar(3);
+            $this->consumeChar(3);
 
             return new Token(Token::ListItem, $lookahead, $originalValue);
         }
@@ -521,17 +507,16 @@ class Lexer {
         return NULL;
     }
 
-    private function checkIndentation(LexerContext $ctx) : ?Token
+    private function checkIndentation() : ?Token
     {
         $isValidBlockStart = $this->isValidBlockStart();
 
         // check tab
         $lookahead = $this->peekChar();
 
-        if ($isValidBlockStart && $lookahead === self::Indent)
+        if ($isValidBlockStart && $lookahead === Lexeme::Indent)
         {
-            if (!$ctx->peek)
-                $this->consumeChar();
+            $this->consumeChar();
 
             return new Token(Token::Indentation, "    ");
         }
@@ -548,15 +533,15 @@ class Lexer {
             return NULL;
 
         // If all chars are white space and are not new lines, it is an indent token
-        if (strpos($lookahead, "\n") !== NULL || strlen(trim($lookahead)) > 0)
+        if (strpos($lookahead, "\n") !== NULL || isset($lookahead[0]))
             return NULL;
 
-        return new Token(Token::Indentation, $ctx->peek ? $lookahead : $this->consumeChar(4));
+        return new Token(Token::Indentation, $this->consumeChar(4));
     }
 
-    private function checkPreformatted(LexerContext $ctx) : ?Token
+    private function checkPreformatted() : ?Token
     {
-        $last = $this->last($this->output);
+        $last = $this->lastToken();
 
         if ($last !== NULL && $last->type == Token::Indentation 
             && $this->checkListItem(new LexerContext(true)) == NULL)
@@ -565,158 +550,158 @@ class Lexer {
         return NULL;
     }
 
-    private function checkNewline(LexerContext $ctx) : ?Token
+    private function checkNewline() : ?Token
     {
-        $lookahead = $this->peekChar(strlen(self::DoubleNewLine));
+        $lookahead = $this->peekChar(Lexeme::Lengths[Lexeme::DoubleNewLine]);
 
-        if ($lookahead === self::DoubleNewLine)
-            return new Token(Token::DoubleNewLine, $ctx->peek ? $lookahead : $this->consumeChar(strlen(self::DoubleNewLine)));
+        if ($lookahead === Lexeme::DoubleNewLine)
+            return new Token(Token::DoubleNewLine, $this->consumeChar(Lexeme::Lengths[Lexeme::DoubleNewLine]));
 
         $lookahead = $this->peekChar();
 
-        if ($lookahead === self::NewLine)
-            return new Token(Token::NewLine, $ctx->peek ? $lookahead : $this->consumeChar());
+        if ($lookahead === Lexeme::NewLine)
+            return new Token(Token::NewLine, $this->consumeChar());
 
         return NULL;
     }
 
-    private function checkLt(LexerContext $ctx) : ?Token
+    private function checkLt() : ?Token
     {
         $lookahead = $this->peekChar();
 
-        if ($lookahead === self::Lt)
-            return new Token(Token::Lt, $ctx->peek ? $lookahead : $this->consumeChar());
+        if ($lookahead === Lexeme::Lt)
+            return new Token(Token::Lt, $this->consumeChar());
 
         return NULL;
     }
 
-    private function checkBold(LexerContext $ctx) : ?Token
+    private function checkBold() : ?Token
     {
         $lookahead = $this->peekChar();
 
-        if ($lookahead === self::BoldOpen)
-            return new Token(Token::BoldOpen, $ctx->peek ? $lookahead : $this->consumeChar());
+        if ($lookahead === Lexeme::BoldOpen)
+            return new Token(Token::BoldOpen, $this->consumeChar());
 
-        if ($lookahead === self::BoldClose)
-            return new Token(Token::BoldClose, $ctx->peek ? $lookahead : $this->consumeChar());
+        if ($lookahead === Lexeme::BoldClose)
+            return new Token(Token::BoldClose, $this->consumeChar());
 
         return NULL;
     }
 
-    private function checkItalic(LexerContext $ctx) : ?Token
+    private function checkItalic() : ?Token
     {
-        $lookahead = $this->peekChar(strlen(self::Italic));
+        $lookahead = $this->peekChar(Lexeme::Lengths[Lexeme::Italic]);
 
-        if ($lookahead === self::Italic)
-            return new Token(Token::Italic, $ctx->peek ? $lookahead : $this->consumeChar(strlen(self::Italic)));
+        if ($lookahead === Lexeme::Italic)
+            return new Token(Token::Italic, $this->consumeChar(Lexeme::Lengths[Lexeme::Italic]));
 
 
-        $lookahead = $this->peekChar(strlen(self::Italic2));
+        $lookahead = $this->peekChar(Lexeme::Lengths[Lexeme::Italic2]);
 
-        if ($lookahead === self::Italic2)
-            return new Token(Token::Italic, $ctx->peek ? $lookahead : $this->consumeChar(strlen(self::Italic2)));
+        if ($lookahead === Lexeme::Italic2)
+            return new Token(Token::Italic, $this->consumeChar(Lexeme::Lengths[Lexeme::Italic2]));
 
         return NULL;
     }
 
-    private function checkInlineCode(LexerContext $ctx) : ?Token
+    private function checkInlineCode() : ?Token
     {
         $lookahead = $this->peekChar();
 
-        if ($lookahead === self::InlineCode)
-            return new Token(Token::InlineCode, $ctx->peek ? $lookahead : $this->consumeChar());
+        if ($lookahead === Lexeme::InlineCode)
+            return new Token(Token::InlineCode, $this->consumeChar());
 
         return NULL;
     }        
 
-    private function checkUnderlined(LexerContext $ctx) : ?Token
+    private function checkUnderlined() : ?Token
     {
-        $lookahead = $this->peekChar(strlen(self::Underline));
+        $lookahead = $this->peekChar(Lexeme::Lengths[Lexeme::Underline]);
 
-        if ($lookahead === self::Underline)
-            return new Token(Token::Underlined, $ctx->peek ? $lookahead : $this->consumeChar(strlen(self::Underline)));
+        if ($lookahead === Lexeme::Underline)
+            return new Token(Token::Underlined, $this->consumeChar(Lexeme::Lengths[Lexeme::Underline]));
 
         return NULL;
     }
 
-    private function checkPipe(LexerContext $ctx) : ?Token
-    {
-        $lookahead = $this->peekChar();
-
-        if ($lookahead === self::Pipe)
-            return new Token(Token::Pipe, $ctx->peek ? $lookahead : $this->consumeChar());
-
-        return NULL;
-    }
-
-    private function checkReference(LexerContext $ctx) : ?Token
+    private function checkPipe() : ?Token
     {
         $lookahead = $this->peekChar();
 
-        if ($this->isValidBlockStart() && $lookahead === self::Reference)
-            return new Token(Token::Reference, $ctx->peek ? $lookahead : $this->consumeChar());
+        if ($lookahead === Lexeme::Pipe)
+            return new Token(Token::Pipe, $this->consumeChar());
 
         return NULL;
     }
 
-    private function checkColon(LexerContext $ctx) : ?Token
+    private function checkReference() : ?Token
     {
-        $lookahead = $this->peekChar(strlen(self::Colon));
+        $lookahead = $this->peekChar();
 
-        if ($lookahead === self::Colon)
-            return new Token(Token::Colon, $ctx->peek ? $lookahead : $this->consumeChar(strlen(self::Colon)));
+        if ($this->isValidBlockStart() && $lookahead === Lexeme::Reference)
+            return new Token(Token::Reference, $this->consumeChar());
 
         return NULL;
     }
 
-    private function checkLink(LexerContext $ctx) : ?Token
+    private function checkColon() : ?Token
     {
-        $lookahead = $this->peekChar(strlen(self::LinkOpen));
-        $last = $this->last($this->output);
+        $lookahead = $this->peekChar(Lexeme::Lengths[Lexeme::Colon]);
+
+        if ($lookahead === Lexeme::Colon)
+            return new Token(Token::Colon, $this->consumeChar(Lexeme::Lengths[Lexeme::Colon]));
+
+        return NULL;
+    }
+
+    private function checkLink() : ?Token
+    {
+        $lookahead = $this->peekChar(Lexeme::Lengths[Lexeme::LinkOpen]);
+        $last = $this->lastToken();
         $lastIsEscape = $last != NULL && $last->type === Token::Escape;
 
-        if ($lookahead === self::LinkOpen && !$lastIsEscape)
-            return new Token(Token::LinkStart, $ctx->peek ? $lookahead : $this->consumeChar(strlen(self::LinkOpen)));
+        if ($lookahead === Lexeme::LinkOpen && !$lastIsEscape)
+            return new Token(Token::LinkStart, $this->consumeChar(Lexeme::Lengths[Lexeme::LinkOpen]));
 
-        if ($lookahead === self::LinkClose && !$lastIsEscape)
-            return new Token(Token::LinkEnd, $ctx->peek ? $lookahead : $this->consumeChar(strlen(self::LinkClose)));
+        if ($lookahead === Lexeme::LinkClose && !$lastIsEscape)
+            return new Token(Token::LinkEnd, $this->consumeChar(Lexeme::Lengths[Lexeme::LinkClose]));
 
         return NULL;
     }
 
-    private function checkImage(LexerContext $ctx) : ?Token
+    private function checkImage() : ?Token
     {
-        $lookahead = $this->peekChar(strlen(self::ImgOpen));
-        $last = $this->last($this->output);
+        $lookahead = $this->peekChar(Lexeme::Lengths[Lexeme::ImgOpen]);
+        $last = $this->lastToken();
         $lastIsEscape = $last != NULL && $last->type === Token::Escape;
 
-        if ($lookahead === self::ImgOpen && !$lastIsEscape)
-            return new Token(Token::ImageStart, $ctx->peek ? $lookahead : $this->consumeChar(strlen(self::ImgOpen)));
+        if ($lookahead === Lexeme::ImgOpen && !$lastIsEscape)
+            return new Token(Token::ImageStart, $this->consumeChar(Lexeme::Lengths[Lexeme::ImgOpen]));
 
-        if ($lookahead === self::ImgClose && !$lastIsEscape)
-            return new Token(Token::ImageEnd, $ctx->peek ? $lookahead : $this->consumeChar(strlen(self::ImgClose)));
+        if ($lookahead === Lexeme::ImgClose && !$lastIsEscape)
+            return new Token(Token::ImageEnd, $this->consumeChar(Lexeme::Lengths[Lexeme::ImgClose]));
 
         return NULL;
     }
 
-    private function checkStrikethrough(LexerContext $ctx) : ?Token
+    private function checkStrikethrough() : ?Token
     {
-        $lookahead = $this->peekChar(strlen(self::Strikethrough));
+        $lookahead = $this->peekChar(Lexeme::Lengths[Lexeme::Strikethrough]);
 
-        if ($lookahead === self::Strikethrough)
-            return new Token(Token::Strikethrough, $ctx->peek ? $lookahead : $this->consumeChar(strlen(self::Strikethrough)));
+        if ($lookahead === Lexeme::Strikethrough)
+            return new Token(Token::Strikethrough, $this->consumeChar(Lexeme::Lengths[Lexeme::Strikethrough]));
 
         return NULL;
     }
 
-    private function checkBlockquote(LexerContext $ctx) : ?Token
+    private function checkBlockquote() : ?Token
     {
         if (!$this->isValidBlockStart())
             return NULL;
 
         $lookahead = $this->peekChar();
 
-        if ($lookahead !== self::Blockquote)
+        if ($lookahead !== Lexeme::Blockquote)
             return NULL;
 
         $q = 1;
@@ -729,7 +714,7 @@ class Lexer {
 
             $tmp = $this->peekChar($q);
 
-            if ($tmp[$q-1] === self::Blockquote[0])
+            if ($tmp[$q-1] === Lexeme::Blockquote[0])
             {
                 $q++;
                 $lookahead = $tmp;
@@ -740,87 +725,86 @@ class Lexer {
 
         } while (true);
 
-        return new Token(Token::Blockquote, $ctx->peek ? $lookahead : $this->consumeChar(max(1, $q-1)));
+        return new Token(Token::Blockquote, $this->consumeChar(max(1, $q-1)));
     }
 
-    private function checkEscapeBlock(LexerContext $ctx) : ?Token
+    private function checkEscapeBlock() : ?Token
     {
         $lookahead = $this->peekChar(2);
 
-        $last = $this->last($this->output);
-        if ($lookahead === self::EscapeBlock && ($last === NULL || $last->type != Token::Escape))
-            return new Token(Token::EscapeBlock, $ctx->peek ? $lookahead : $this->consumeChar(2));
+        $last = $this->lastToken();
+        if ($lookahead === Lexeme::EscapeBlock && ($last === NULL || $last->type != Token::Escape))
+            return new Token(Token::EscapeBlock, $this->consumeChar(2));
 
         return NULL;
     }
 
-    private function checkEscape(LexerContext $ctx) : ?Token
+    private function checkEscape() : ?Token
     {
         $lookahead = $this->peekChar();
 
-        if ($lookahead === self::Escape)
-            return new Token(Token::Escape, $ctx->peek ? $lookahead : $this->consumeChar());
+        if ($lookahead === Lexeme::Escape)
+            return new Token(Token::Escape, $this->consumeChar());
 
         return NULL;
     }
 
-    private function checkCodeBlock(LexerContext $ctx) : ?Token
+    private function checkCodeBlock() : ?Token
     {
         if (!$this->isValidBlockStart())
             return NULL;
             
-        $lookahead = $this->peekChar(strlen(self::Codeblock));
+        $lookahead = $this->peekChar(Lexeme::Lengths[Lexeme::Codeblock]);
 
-        if ($lookahead !== self::Codeblock)
+        if ($lookahead !== Lexeme::Codeblock)
             return NULL;
 
         
         // Check for more backticks to see if it is a header
-        $str = $this->peekChar(strlen(self::Codeblock)+1);
-
-        if (strlen($str) == strlen(self::Codeblock) + 1 && $str[strlen($str) - 1] === self::Codeblock[0])
+        $str = $this->peekChar(Lexeme::Lengths[Lexeme::Codeblock]+1);
+        $strLength = strlen($str);
+        if ($strLength == Lexeme::Lengths[Lexeme::Codeblock] + 1 && $str[$strLength - 1] === Lexeme::Codeblock[0])
             return NULL;
 
-        return new Token(Token::CodeBlock,$ctx->peek ? $lookahead : $this->consumeChar(strlen(self::Codeblock)));
+        return new Token(Token::CodeBlock,$this->consumeChar(Lexeme::Lengths[Lexeme::Codeblock]));
     }
     
-    private function checkDmlCodeBlock(LexerContext $ctx) : ?Token
+    private function checkDmlCodeBlock() : ?Token
     {
         if (!$this->isValidBlockStart())
             return NULL;
 
-        $lookahead = $this->peekChar(strlen(self::DmlCodeblock));
+        $lookahead = $this->peekChar(Lexeme::Lengths[Lexeme::DmlCodeblock]);
 
-        if ($lookahead !== self::DmlCodeblock)
+        if ($lookahead !== Lexeme::DmlCodeblock)
             return NULL;
 
-        $str = $this->peekChar(strlen(self::DmlCodeblock)+1);
-
-        if (strlen($str) == strlen(self::DmlCodeblock) + 1 && $str[strlen($str) - 1] === self::DmlCodeblock[0])
+        $str = $this->peekChar(Lexeme::Lengths[Lexeme::DmlCodeblock]+1);
+        $strLength = strlen($str);
+        if ($strLength == Lexeme::Lengths[Lexeme::DmlCodeblock] + 1 && $str[$strLength - 1] === Lexeme::DmlCodeblock[0])
             return NULL;
 
-        return new Token(Token::CodeBlock, $ctx->peek ? $lookahead : $this->consumeChar(strlen(self::DmlCodeblock)));
+        return new Token(Token::CodeBlock, $this->consumeChar(Lexeme::Lengths[Lexeme::DmlCodeblock]));
     }
 
-    private function checkCodeBlockLang(LexerContext $ctx) : ?Token
+    private function checkCodeBlockLang() : ?Token
     {
         $lookahead = $this->peekChar();
-        $last = $this->last($this->output);
+        $last = $this->lastToken();
 
         if ($last === NULL || $last->type !== Token::CodeBlock || $lookahead == NULL || $lookahead == "\n")
             return NULL;
 
         $lookahead = "";
         $q = 1;
-        $tmp = NULL;            
-        while (($tmp = $this->peekChar($q)) != $lookahead && strlen($tmp) >= 1 && $tmp[strlen($tmp)-1] != "\n")
+        $tmp = NULL;
+        while (($tmp = $this->peekChar($q)) != $lookahead && isset($tmp[1]) && $tmp[strlen($tmp)-1] != "\n")
         {
             $lookahead = $tmp;
             $q++;
         }
 
-        if (!$ctx->peek)
-            $this->consumeChar($q-1);
+        $this->consumeChar($q-1);
 
         return new Token(Token::CodeBlockLang, $lookahead);
     }
