@@ -230,7 +230,7 @@ class Lexer
     private $peek_buffer = [];
     private $peek_index = 0;
 
-    public function peekToken(int $offset = 0) : ?Token
+    public function peekToken(int $offset = 0) : Token
     {
         if (isset($this->peek_buffer[$offset]))
         {
@@ -449,7 +449,7 @@ class Lexer
     {
         $lookahead = $this->peekChar(1);
 
-        if (array_search($lookahead, Lexeme::Headers, true) === false)
+        if (!isset(Lexeme::Headers[$lookahead[0]]))
             return NULL;
         
         if (~($this->flags & self::BlockStart) == 0)
@@ -495,7 +495,7 @@ class Lexer
         $lookahead = $this->peekChar(2);
 
         if (($this->flags & self::BlockStart) && strlen($lookahead) == 2 
-            && array_search($lookahead[0], Lexeme::Lists, true) !== false && $lookahead[1] === ' ')
+            && isset(Lexeme::Lists[$lookahead[0]]) && $lookahead[1] === ' ')
             return new Token(Token::ListItem, $this->consumeChar(2));
 
         return NULL;

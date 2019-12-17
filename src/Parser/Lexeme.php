@@ -168,12 +168,12 @@ class Lexeme {
     /**
      * @var array
      */
-    public const Headers = [ self::Header1, self::Header2, self::Header3, self::Header4 ];
+    public const Headers = [ self::Header1 => 0, self::Header2 => 0, self::Header3 => 0, self::Header4 => 0 ];
 
     /**
      * @var array
      */
-    public const Lists = [ self::UList1, self::UList2, self::UList3, self::OList1 ];
+    public const Lists = [ self::UList1 => 0, self::UList2 => 0, self::UList3 => 0, self::OList1 => 0 ];
 
     public const Lengths = [
         self::Header1           => 1,

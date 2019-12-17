@@ -101,17 +101,11 @@ class Parser
 
     private function peekToken(int $offset = 0) : ?Token
     {
-        if (!$this->lexer->hasInput())
-            return NULL;
-
         return $this->lexer->peekToken($offset);
     }
 
     private function consumeToken() : ?Token
     {
-        if (!$this->hasInput())
-            return NULL;
-
         return $this->lexer->nextToken();
     }
 
