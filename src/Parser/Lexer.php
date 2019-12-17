@@ -22,7 +22,7 @@ class Lexer
     private $index;
 
     /**
-     * @var \Dml\Token[]
+     * @var \Dml\Parser\Token[]
      */
     private $output;
 
@@ -34,7 +34,7 @@ class Lexer
     private $outputLength;
 
     /**
-     * @var \Dml\Token
+     * @var \Dml\Parser\Token
      */
     private $EOFToken;
 
@@ -47,7 +47,8 @@ class Lexer
 
     private $flags;
 
-    const BlockStart = 0x1;
+    const BlockStart = 0x01;
+    const EndOfInput = 0x80;
     
     private const TextStoppers = [
         1 => [
@@ -132,6 +133,8 @@ class Lexer
         return $tokens;
     }
 
+    private $peek_char_buffer = [];
+
     private function peekChar(int $length = 1) : ?string
     {
         if ($this->index >= $this->sourceLength)
@@ -143,7 +146,10 @@ class Lexer
         if ($length == 1)
             return $this->source[$this->index];
 
-        return substr($this->source, $this->index, $length);
+        if(isset($this->peek_char_buffer[$this->index][$length]))
+            return $this->peek_char_buffer[$this->index][$length];
+
+        return $this->peek_char_buffer[$this->index][$length] = substr($this->source, $this->index, $length);
     }
 
     private function consumeChar(int $length = 1) : ?string
@@ -155,9 +161,17 @@ class Lexer
             $length = $this->sourceLength - $this->index;
 
         if ($length == 1)
+        {
             $char = $this->source[$this->index];
+        }
+        else if (isset($this->peek_char_buffer[$this->index][$length]))
+        {
+            $char = $this->peek_char_buffer[$this->index][$length];
+        }
         else
+        {
             $char = substr($this->source, $this->index, $length);
+        }
 
         $this->index += $length;
 
@@ -168,11 +182,6 @@ class Lexer
     {
         return $this->index < $this->sourceLength || $this->peek_index > 0;
     }
-
-    private function isEndOfInput(int $offset = 0) :  bool
-    {
-        return $this->index + $offset >= $this->sourceLength;
-    }        
 
     private function lastToken() : ?Token
     {
@@ -197,6 +206,9 @@ class Lexer
             // Skip Indentation, Escape and Empty strings to clear the BlockStart
             $this->flags &= ~self::BlockStart;
         }
+
+        if ($this->index >= $this->sourceLength)
+            $this->flags |= self::EndOfInput;
     }
 
     function nextToken() : Token
@@ -469,7 +481,7 @@ class Lexer
         while (($tmp = $this->peekChar()) == $lookahead || $tmp === " ")
             $tokenval .= $this->consumeChar();
 
-        if (($tmp === Lexeme::NewLine || $this->isEndOfInput()) && strlen($tokenval) >= 4)
+        if (($tmp === Lexeme::NewLine || ($this->flags & self::EndOfInput)) && strlen($tokenval) >= 4)
             return new Token(Token::HeaderStart, $tokenval);
 
         $this->index -= strlen($tokenval);
@@ -518,7 +530,7 @@ class Lexer
 
         $i=1;
         $lookahead = "";
-        while (strlen(($lookahead = $this->peekChar($i))) > 0 && !$this->isEndOfInput($i) && is_numeric($lookahead))
+        while (strlen(($lookahead = $this->peekChar($i))) > 0 && ~($this->flags & self::EndOfInput) && is_numeric($lookahead))
             $i++;
 
         $tmp = $this->peekChar(++$i); // The NOT digit that broke the previos while plus the needed space
@@ -758,28 +770,11 @@ class Lexer
         if ($lookahead !== Lexeme::Blockquote)
             return NULL;
 
-        $q = 1;
-        $tmp = NULL;
         $lookahead = "";
-        do
-        {
-            if ($this->isEndOfInput($q))
-                break;
+        while ($this->peekChar() === Lexeme::Blockquote[0])
+            $lookahead .= $this->consumeChar();
 
-            $tmp = $this->peekChar($q);
-
-            if ($tmp[$q-1] === Lexeme::Blockquote[0])
-            {
-                $q++;
-                $lookahead = $tmp;
-                continue;
-            }
-
-            break;
-
-        } while (true);
-
-        return new Token(Token::Blockquote, $this->consumeChar(max(1, $q-1)));
+        return new Token(Token::Blockquote, $lookahead);
     }
 
     private function checkEscapeBlock() : ?Token

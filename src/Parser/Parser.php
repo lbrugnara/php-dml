@@ -1470,7 +1470,7 @@ class Parser
         $value = $token->value;
 
         // Sanitize the '<'
-        if (!$ctx->isMarkupEnabled())
+        if (!$ctx->isMarkupEnabled() && isset($value[0]))
             $value = str_replace("<", "&lt;", $value ?? "");
 
         $this->output[] = new Text($value);
