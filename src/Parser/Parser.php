@@ -115,7 +115,7 @@ class Parser
         return $this->lexer->nextToken();
     }
 
-    private function last(array $arr, $default = NULL)
+    private function getLastElement(array $arr, $default = NULL) : ?Element
     {
         $key = array_key_last($arr);
 
@@ -164,7 +164,7 @@ class Parser
         // Consume all the items that remain in the NodeStack
         // all of them are children of the DmlDocument object
         while (count($this->output) > 0)
-            $doc->body->unshiftChild(array_pop($this->output));
+            $doc->unshiftChild(array_pop($this->output));
 
         return $doc;
     }
@@ -200,16 +200,15 @@ class Parser
 
             $this->inlineParsers[$token->type]($ctx);
 
-            // If the token value ends with a dot and the next token we have to process is a NL
-            // we need to add a line break to honor the grammatical paragraph
-            $last = $this->last($this->output);
-            $isParagraph = $last->type === Element::Paragraph;
-            // FIXME: Fix grammatical paragraph
-            $isGrammaticalParagraph = false;
-            //$isGrammaticalParagraph = $this->last($this->output).Value.InnerText.Trim()?.EndsWith(".") == true && $this->peekToken()->type === Token::NewLine;
+            $textElement = $this->findLastTextElement($this->getLastElement($this->output));
 
-            if ($isGrammaticalParagraph)
-                $this->output[] = new LineBreak();
+            if ($textElement !== NULL)
+            {
+                $it = trim($textElement->content);
+                $length = strlen($it);
+                if ($length > 0 && $it[$length-1] == '.')
+                    $this->output[] = new LineBreak();
+            }
         }
 
         // Create new paragraph, add childs and add it to
@@ -221,7 +220,7 @@ class Parser
         while (count($this->output) > 0)
         {
             // If next is a block element, we don't need to add a paragraph
-            if ($this->last($this->output)->isBlockElement())
+            if ($this->getLastElement($this->output)->isBlockElement())
                 break;
 
             // Add a child to the current paragrapg
@@ -417,13 +416,7 @@ class Parser
         $header = new Header($headerType);
 
         // Take last's node children
-        $header->takeChildren(array_pop($this->output));
-
-        // FIXME: Fix the header ID logic, maybe in the generators
-        // Build an id for the header
-        //var id = header.InnerText.Replace(" ", "-").ToLower().Trim();
-        //// TODO: Should we sanitize/modify something here?
-        //header.Attributes["id"] = id;
+        $header->takeChildrenFrom(array_pop($this->output));        
         
         $this->output[] = $header;
     }
@@ -442,7 +435,7 @@ class Parser
 
         // Get a reference to the last node in the linked list
         // before doing anything related to this inline element
-        $lastNode = $this->last($this->output);
+        $lastNode = $this->getLastElement($this->output);
 
         // Save the starting token
         $startToken = $this->consumeToken();
@@ -496,7 +489,7 @@ class Parser
         {
             // If the last node is equals to our saved lastNode, it means we reached
             // the starting point so we need to stop consuming Output's elements
-            if ($this->last($this->output) === $lastNode)
+            if ($this->getLastElement($this->output) === $lastNode)
                 break;
 
             // Add a child to the current code node
@@ -559,7 +552,7 @@ class Parser
         $doc = $parser->parse($source_str);
 
         // Get body's children of the parsed document
-        foreach ($doc->body->getChildren() as $child)
+        foreach ($doc->getChildren() as $child)
             $this->output[] = $child;
             
         // Add a <hr/> after the DmlSource
@@ -573,7 +566,7 @@ class Parser
     {
         // Get a reference to the last node in the linked list
         // before doing anything related to this preformatted block
-        $lastNode = $this->last($this->output);
+        $lastNode = $this->getLastElement($this->output);
 
         // Consume the Preformatted token
         $this->consumeToken();
@@ -608,7 +601,7 @@ class Parser
         $code = new Code(true);
 
         // Populate the CodeNode
-        while (count($this->output) > 0 && $this->last($this->output) !== $lastNode)
+        while (count($this->output) > 0 && $this->getLastElement($this->output) !== $lastNode)
             $code->unshiftChild(array_pop($this->output));
 
         // Wrap the code node into the pref node
@@ -624,9 +617,9 @@ class Parser
     {
         return $listToken->value === "# " 
                 ? Element::OrderedList
-                : $listToken->value[0] == '['
+                : ($listToken->value[0] == '['
                     ? Element::TodoList
-                    : Element::UnorderedList;
+                    : Element::UnorderedList);
     }
 
     private function getOrderedListStartIndex(Token $token) : ?int
@@ -651,7 +644,7 @@ class Parser
     {
         // Get a reference to the last node in the linked list
         // before doing anything related to this list
-        $lastNode = $this->last($this->output);
+        $lastNode = $this->getLastElement($this->output);
 
         // Track the indents for nested lists
         // indents contains the current list's indentation
@@ -712,7 +705,7 @@ class Parser
                     $currentIndex = $this->getOrderedListStartIndex($token);
 
                     // If the $currentIndex exists is not $lastIndex + 1, break this list
-                    if (!$currentIndex !== NULL || $currentIndex <= $lastIndex || $currentIndex > $lastIndex + 1)
+                    if ($currentIndex === NULL || $currentIndex <= $lastIndex || $currentIndex > $lastIndex + 1)
                         break;
                 }
 
@@ -736,7 +729,7 @@ class Parser
             $innerList = array_pop($this->output);
 
             // Append the inner list to the last <li>
-            $this->last($this->output)->addChild($innerList);
+            $this->getLastElement($this->output)->addChild($innerList);
         }
 
         // Create the ListNode and populate with the ListItemNodes
@@ -752,25 +745,41 @@ class Parser
         // If the list is enumerated, set the start index
         if ($listStartIndex !== NULL)
         {
-            $list->attributes["start"] = strval($listStartIndex->value);
-            $list->properties["index"] = $listStartIndex->value;
+            $list->attributes["start"] = strval($listStartIndex);
+            $list->properties["index"] = $listStartIndex;
         }
 
         $list->properties["indents"] = $indents;
 
         // Process list's children
-        while (count($this->output) > 0 && $this->last($this->output) !== $lastNode)
+        while (count($this->output) > 0 && $this->getLastElement($this->output) !== $lastNode)
             $list->unshiftChild(array_pop($this->output));
 
         // Add the list to the output
         $this->output[] = $list;
     }
 
+    private function findLastTextElement(?Element $element) : ?Element
+    {
+        if ($element == NULL)
+            return NULL;
+
+        $tmp = $element;
+        do {
+            if ($tmp instanceof Text)
+                return $tmp;
+
+            $tmp = $this->getLastElement($tmp->getChildren());
+        } while ($tmp !== NULL);
+
+        return NULL;
+    }
+
     private function parseListItem(ParsingContext $ctx) : void
     {
         // Get a reference to the last node in the linked list
         // before doing anything related to this list
-        $lastNode = $this->last($this->output);
+        $lastNode = $this->getLastElement($this->output);
 
         // Each list item is responsible of removing the indentation
         while ($this->peekToken()->type === Token::Indentation)
@@ -793,11 +802,15 @@ class Parser
             {
                 $this->consumeToken();
 
-                // FIXME: Fix grammatical paragraph
-                // var isGrammaticalParagraph = $this->last($this->output).Value.InnerText.Trim()?.EndsWith(".") == true;
-                // 
-                // if (isGrammaticalParagraph)
-                //     this.Output.AddLast(new LineBreakNode());
+                $textElement = $this->findLastTextElement($this->getLastElement($this->output));
+
+                if ($textElement !== NULL)
+                {
+                    $it = trim($textElement->content);
+                    $length = strlen($it);
+                    if ($length > 0 && $it[$length-1] == '.')
+                        $this->output[] = new LineBreak();
+                }
 
                 continue;
             }
@@ -815,7 +828,7 @@ class Parser
         $baseIndex = count($listItem->getChildren());
 
         // Populate the ListItem
-        while (count($this->output) > 0 && $this->last($this->output) !== $lastNode)
+        while (count($this->output) > 0 && $this->getLastElement($this->output) !== $lastNode)
             $listItem->insertChild($baseIndex, array_pop($this->output));
 
         // Add the ListItem to the Output
@@ -904,7 +917,7 @@ class Parser
     {
         // Get a reference to the last node in the linked list
         // before doing anything related to this inline element
-        $lastNode = $this->last($this->output);
+        $lastNode = $this->getLastElement($this->output);
 
         // Keep the start token, we could need it 
         $startToken = $this->consumeToken();
@@ -955,7 +968,7 @@ class Parser
 
         // If the last node is equals to our saved $lastNode, it means we reached
         // the starting point so we need to stop consuming Output's elements
-        while (count($this->output) > 0 && $this->last($this->output) !== $lastNode)
+        while (count($this->output) > 0 && $this->getLastElement($this->output) !== $lastNode)
         {
             // Add a child to the current paragrapg
             $element->unshiftChild(array_pop($this->output));
@@ -968,7 +981,7 @@ class Parser
     private function parseLink(ParsingContext $ctx) : void
     {
         // Get a reference to the first token before any link's token
-        $lastNode = $this->last($this->output);
+        $lastNode = $this->getLastElement($this->output);
 
         // Consume the start token, we might need it if this is not
         // a valid link
@@ -1052,10 +1065,10 @@ class Parser
             // Parse the href
             $href_doc = $parser->parse($href);
             
-            if (count($href_doc->body->getChildren()) > 0)
+            if (count($href_doc->getChildren()) > 0)
             {
                 $this->output[] = new Text("|");
-                $href_doc_children = $href_doc->body->getChildren();
+                $href_doc_children = $href_doc->getChildren();
                 
                 if (count($href_doc_children) > 0)
                 {
@@ -1067,10 +1080,10 @@ class Parser
             // Parse the title
             $title_doc = $parser->parse($title);
 
-            if (count($title_doc->body->getChildren()) > 0)
+            if (count($title_doc->getChildren()) > 0)
             {
                 $this->output[] = new Text("|");
-                $title_doc_children = $title_doc->body->getChildren();
+                $title_doc_children = $title_doc->getChildren();
                 
                 if (count($title_doc_children) > 0)
                 {
@@ -1087,20 +1100,20 @@ class Parser
 
         // Check if the link is a link to a reference
         $href = trim($href);
-        if (strlen($href) > 0 && $href[0] == ':')
+        if (isset($href[0]) && $href[0] == ':')
         {
             $titles = explode(',', trim($title));
             $hrefs = explode(',' ,trim(substr($href, 1)));
 
             $referenceGroup = new ReferenceGroup();
 
-            while (count($this->output) > 0 && $this->last($this->output) !== $lastNode)
+            while (count($this->output) > 0 && $this->getLastElement($this->output) !== $lastNode)
                 $referenceGroup->unshiftChild(array_pop($this->output));
 
             for ($i = 0; $i < count($hrefs); $i++)
             {
                 $refLink = new ReferenceLink($hrefs[$i], isset($titles[$i]) ? $titles[$i] : NULL);
-                $referenceGroup->links[] = $refLink;
+                $referenceGroup->addChild($refLink);
             }
 
             $this->output[] = $referenceGroup;
@@ -1112,7 +1125,7 @@ class Parser
         // anchor
         $link = new Link($href, $title);
 
-        while (count($this->output) > 0 && $this->last($this->output) !== $lastNode)
+        while (count($this->output) > 0 && $this->getLastElement($this->output) !== $lastNode)
             $link->unshiftChild(array_pop($this->output));
 
         $this->output[] = $link;
@@ -1121,7 +1134,7 @@ class Parser
     private function parseImage(ParsingContext $ctx) : void
     {
         // Get a reference to the first token before any img's token
-        $lastNode = $this->last($this->output);
+        $lastNode = $this->getLastElement($this->output);
 
         // Consume the start token, we might need it if this is not
         // a valid image
@@ -1209,9 +1222,9 @@ class Parser
             // Parse the source
             $src_doc = $parser->parse($source);
 
-            if (count($src_doc->body->getChildren()) > 0)
+            if (count($src_doc->getChildren()) > 0)
             {
-                $src_doc_children = $src_doc->body->getChildren();
+                $src_doc_children = $src_doc->getChildren();
                 
                 if (count($src_doc_children) > 0)
                 {
@@ -1223,11 +1236,11 @@ class Parser
             // Parse the title
             $title_doc = $parser->parse($title);
 
-            if (count($title_doc->body->getChildren()) > 0)
+            if (count($title_doc->getChildren()) > 0)
             {
                 $this->output[] = new Text("|");
 
-                $title_doc_children = $title_doc->body->getChildren();
+                $title_doc_children = $title_doc->getChildren();
                 
                 if (count($title_doc_children) > 0)
                 {
@@ -1239,11 +1252,11 @@ class Parser
             // Parse the alt title
             $alt_title_doc = $parser->parse($altTitle);
 
-            if (count($$alt_title_doc->body->getChildren()) > 0)
+            if (count($$alt_title_doc->getChildren()) > 0)
             {
                 $this->output[] = new Text("|");
 
-                $alt_title_doc_children = $alt_title_doc->body->getChildren();
+                $alt_title_doc_children = $alt_title_doc->getChildren();
                 
                 if (count($alt_title_doc_children) > 0)
                 {
@@ -1268,7 +1281,7 @@ class Parser
     {
         // Save the last inserted node before any
         // Reference processing
-        $lastNode = $this->last($this->output);
+        $lastNode = $this->getLastElement($this->output);
 
         // Consume and save the startToken, we might need it later
         $startToken = $this->consumeToken();
@@ -1342,10 +1355,10 @@ class Parser
             $parser = new Parser();
             $href_doc = $parser->parse($href);
 
-            if (count($href_doc->body->getChildren()) > 0)
+            if (count($href_doc->getChildren()) > 0)
             {
                 $this->output[] = new Text("|");
-                $href_doc_children = $href_doc->body->getChildren();
+                $href_doc_children = $href_doc->getChildren();
                 
                 if (count($href_doc_children) > 0)
                 {
@@ -1372,14 +1385,14 @@ class Parser
         // Create the new ReferenceNode
         $reference = new Reference(trim($href));
 
-        while (count($this->output) > 0 && $this->last($this->output) !== $lastNode)
+        while (count($this->output) > 0 && $this->getLastElement($this->output) !== $lastNode)
             $reference->unshiftChild(array_pop($this->output));
 
         // Add the reference
         $this->output[] = $reference;
 
         // Get a reference to the first token before any img's token
-        $lastNode = $this->last($this->output);
+        $lastNode = $this->getLastElement($this->output);
 
         // Process the reference siblings, "logically" we consider it a block (see below)
         while ($this->hasInput())
@@ -1421,7 +1434,7 @@ class Parser
         $referenceSiblings = new Group();
 
 
-        while (count($this->output) > 0 && $this->last($this->output) !== $lastNode)
+        while (count($this->output) > 0 && $this->getLastElement($this->output) !== $lastNode)
             $referenceSiblings->unshiftChild(array_pop($this->output));
 
         $this->output[] = $referenceSiblings;

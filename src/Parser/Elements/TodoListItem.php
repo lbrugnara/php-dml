@@ -2,7 +2,7 @@
 
 namespace Dml\Parser\Elements;
 
-class TodoListItem extends Element
+class TodoListItem extends ListItem
 {
     /**
      * @var bool

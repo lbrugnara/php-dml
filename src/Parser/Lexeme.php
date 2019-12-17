@@ -198,7 +198,7 @@ class Lexeme {
         self::NewLine           => 1,
         self::DoubleNewLine     => 2,
         self::Italic            => 2,
-        self::Italic2           => 1,
+        self::Italic2           => 2,
         self::Underline         => 2,
         self::Strikethrough     => 2,
         self::BoldOpen          => 1,

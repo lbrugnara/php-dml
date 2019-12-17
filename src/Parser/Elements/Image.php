@@ -17,14 +17,14 @@ class Image extends Element
     /**
      * @var string
      */
-    public $alttitle;
+    public $altTitle;
 
-    public function __construct(string $title, string $source, string $alttitle)
+    public function __construct(string $title, string $source, string $altTitle)
     {
         parent::__construct();
         $this->type = Element::Image;
         $this->title = $title;
         $this->source = $source;
-        $this->alttitle = $alttitle;
+        $this->altTitle = $altTitle;
     }
 }

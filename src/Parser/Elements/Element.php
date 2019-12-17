@@ -114,10 +114,10 @@ class Element
     public function insertChild(int $pos, Element $child) : void
     {
         $child->parent = $this;
-        array_splice($this->children, $pos, 0, $child);
+        array_splice($this->children, $pos, 0, [ $child ]);
     }
 
-    public function takeChildren(Element $element) : void
+    public function takeChildrenFrom(Element $element) : void
     {
         while (count($element->children) > 0)
         {
