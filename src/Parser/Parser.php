@@ -52,61 +52,63 @@ class Parser
      *
      * @var \Dml\Parser\Lexer
      */
-    private $lexer;    
+    private $lexer;
+
+    /**
+     * Source code
+     *
+     * @var string
+     */
+    private $source;
 
     public function __construct()
     {
         $this->output = [];
 
         $this->blockParsers = [
-            Token::HeaderStart    => [ $this, 'parseHeader' ],
-            Token::Blockquote     => [ $this, 'parseBlockquote' ],
-            Token::CodeBlock      => [ $this, 'parseCodeBlock' ],
-            Token::Preformatted   => [ $this, 'parsePreformatted' ],
-            Token::Indentation    => [ $this, 'parsePreformatted' ],
-            Token::ListItem       => [ $this, 'parseList' ],
-            Token::ThematicBreak  => [ $this, 'parseThematicBreak' ],
-            Token::NewLine        => [ $this, 'parseNewLine' ],
+            Token::Header1              => [ $this, 'parseHeader' ],
+            Token::Header2              => [ $this, 'parseHeader' ],
+            Token::Header3              => [ $this, 'parseHeader' ],
+            Token::Header4              => [ $this, 'parseHeader' ],
+            Token::Blockquote           => [ $this, 'parseBlockquote' ],
+            Token::CodeBlock            => [ $this, 'parseCodeBlock' ],
+            Token::Preformatted         => [ $this, 'parsePreformatted' ],
+            Token::Indentation          => [ $this, 'parsePreformatted' ],
+            Token::LabeledListItem      => [ $this, 'parseList' ],
+            Token::UnorderedListItem    => [ $this, 'parseList' ],
+            Token::NumberedListItem     => [ $this, 'parseList' ],
+            Token::TodoListItem         => [ $this, 'parseList' ],
+            Token::ThematicBreak        => [ $this, 'parseThematicBreak' ],
+            Token::NewLine              => [ $this, 'parseNewLine' ],
         ];
 
         $this->inlineParsers = [
-            Token::Text           => [ $this, 'parseText' ],
-            Token::Reference      => [ $this, 'parseReference' ],
-            Token::EscapeBlock    => [ $this, 'parseEscapeBlock' ],
-            Token::Escape         => [ $this, 'parseEscape' ],
-            Token::LinkStart      => [ $this, 'parseLink' ],
-            Token::ImageStart     => [ $this, 'parseImage' ],
-            Token::BoldOpen       => [ $this, 'parseBold' ],
-            Token::Italic         => [ $this, 'parseItalic' ],
-            Token::Underlined     => [ $this, 'parseUnderline' ],
-            Token::Strikethrough  => [ $this, 'parseStrikethrough' ],
-            Token::InlineCode     => [ $this, 'parseInlineCode' ],
-            Token::NewLine        => [ $this, 'parseNewLine' ],
+            Token::Text                 => [ $this, 'parseText' ],
+            Token::Colon                => [ $this, 'parseText' ],
+            Token::Reference            => [ $this, 'parseReference' ],
+            Token::EscapeBlock          => [ $this, 'parseEscapeBlock' ],
+            Token::Escape               => [ $this, 'parseEscape' ],
+            Token::LinkStart            => [ $this, 'parseLink' ],
+            Token::ImageStart           => [ $this, 'parseImage' ],
+            Token::BoldOpen             => [ $this, 'parseBold' ],
+            Token::Italic               => [ $this, 'parseItalic' ],
+            Token::Underlined           => [ $this, 'parseUnderline' ],
+            Token::Strikethrough        => [ $this, 'parseStrikethrough' ],
+            Token::InlineCode           => [ $this, 'parseInlineCode' ],
+            Token::NewLine              => [ $this, 'parseNewLine' ],
         ];
     }
 
     public function parse(string $source, ParsingContext $ctx = NULL) : Document
     {
-        $this->lexer = new Lexer($source);
+        $this->source = str_replace("\r", "", $source);
+        $this->lexer = new Lexer($this->source);
 
         $document = $this->parseDocument($ctx ?? new ParsingContext());
 
+        $this->lexer = null;
+
         return $document;
-    }
-
-    private function hasInput() : bool
-    {
-        return $this->lexer->hasInput();
-    }
-
-    private function peekToken(int $offset = 0) : ?Token
-    {
-        return $this->lexer->peekToken($offset);
-    }
-
-    private function consumeToken() : ?Token
-    {
-        return $this->lexer->nextToken();
     }
 
     private function getLastElement(array $arr, $default = NULL) : ?Element
@@ -117,6 +119,22 @@ class Parser
             return $default;
 
         return $arr[$key];
+    }
+
+    private function findLastTextElement(?Element $element) : ?Element
+    {
+        if ($element == NULL)
+            return NULL;
+
+        $tmp = $element;
+        do {
+            if ($tmp instanceof Text)
+                return $tmp;
+
+            $tmp = $this->getLastElement($tmp->getChildren());
+        } while ($tmp !== NULL);
+
+        return NULL;
     }
 
     private function getBlockParser(ParsingContext $ctx, Token $token)
@@ -142,21 +160,22 @@ class Parser
     {
         // Get the block element parser and invoke the method
         // with the provided ParsingContext
-        while ($this->hasInput())
+        while ($this->lexer->hasInput())
         {
-            if ($this->peekToken()->type === Token::DoubleNewLine)
+            $token = $this->lexer->peekToken();
+            if ($token->type === Token::DoubleNewLine)
             {
-                $this->consumeToken();
+                $this->lexer->nextToken();
                 continue;
             }
 
-            $this->getBlockParser($ctx, $this->peekToken())($ctx);
+            $this->getBlockParser($ctx, $token)($ctx);
         }
 
         $doc = new Document();
 
-        // Consume all the items that remain in the NodeStack
-        // all of them are children of the DmlDocument object
+        // Consume all the items that remain in the output,
+        // all of them are children of the Document object
         while (count($this->output) > 0)
             $doc->unshiftChild(array_pop($this->output));
 
@@ -165,27 +184,33 @@ class Parser
 
     private function parseParagraph(ParsingContext $ctx) : void
     {
-        while ($this->hasInput())
+        while ($this->lexer->hasInput())
         {
+            $token = $this->lexer->peekToken();
 
             // Break on 2NL
-            if ($this->peekToken()->type === Token::DoubleNewLine)
+            if ($token->type === Token::DoubleNewLine)
             {
-                $this->consumeToken();
+                $this->lexer->nextToken();
+
+                // No need to add a line break if we are closing the paragraph
+                $last = $this->getLastElement($this->output);
+                if ($last != NULL && $last instanceof LineBreak)
+                    \array_pop($this->output);
+
                 break;
-            }
+            }            
 
-            $token = $this->peekToken();
-
-            // If it is not an inline element we need to check
-            // if we can process it with ParseText or just break the
-            // loop.
-            // If the token type cannot be parsed by a block parser, we
-            // just add it as plain text, if not, we break the loop.
             if (!isset($this->inlineParsers[$token->type]))
             {
+                // If it is not an inline element, we need to check if it is
+                // a block one, that way we break the loop.
                 if (!isset($this->blockParsers[$token->type]))
                 {
+                    // At this point, the element is processed as text, because it might
+                    // be a markup element, but in the context it is present, it is not valid
+                    // so it is ok to process it as text (it could be a LinkClose or a ImageClose that is
+                    // not paired with its corresponding open element)
                     $this->parseText($ctx);
                     continue;
                 }
@@ -198,6 +223,8 @@ class Parser
 
             if ($textElement !== NULL)
             {
+                // If the paragraph ends with a period, we add
+                // a line break to represent the grammatical paragraph
                 $it = trim($textElement->content);
                 $length = strlen($it);
                 if ($length > 0 && $it[$length-1] == '.')
@@ -205,15 +232,14 @@ class Parser
             }
         }
 
-        // Create new paragraph, add childs and add it to
-        // the temporal output
+        // Create new paragraph, add the children elements to it,
+        // and then move it to the output
         $paragraph = new Paragraph();
 
-        // Because paragraphs can be divided by NewLines we need
-        // to run nested loops to process them
         while (count($this->output) > 0)
         {
-            // If next is a block element, we don't need to add a paragraph
+            // If the next element is a block element, we need to break
+            // this loop, because it is not part of the paragraph
             if ($this->getLastElement($this->output)->isBlockElement())
                 break;
 
@@ -229,27 +255,14 @@ class Parser
         if ($token->type !== Token::Blockquote)
             return -1;
 
-        return strlen($token->value);
-    }
-
-    private function consumeWhiteSpaces() : void
-    {
-        while ($this->hasInput())
-        {
-            $token = $this->peekToken();
-
-            if ($token->type !== Token::Text || strlen(trim($token->value)) > 0)
-                break;
-
-            $this->consumeToken();
-        }
+        return $token->length;
     }
 
     private function parseBlockquote(ParsingContext $ctx) : void
     {
-        // Our ParseBlockquote needs to know the previos blockquote level and the target
+        // Our ParseBlockquote needs to know the previous blockquote level and the target
         // level to work as expected
-        $this->parseBlockquoteInLevel($ctx, $this->getBlockquoteLevel($this->peekToken()), 0);
+        $this->parseBlockquoteInLevel($ctx, $this->getBlockquoteLevel($this->lexer->peekToken()), 0);
     }
 
     private function parseBlockquoteInLevel(ParsingContext $ctx, int $targetLevel, int $previousLevel) : void
@@ -258,29 +271,32 @@ class Parser
 
         // We can add the blockquote here, because of how the parsing method
         // is designed, we will not modify Output inside ParseBlockquote except
-        // by current blockquote (this very line)
+        // by current the blockquote (this very line)
         $this->output[] = $blockquote;
 
-        // While the target level is not the immediate next
-        // level, resolve the next level first
+        // Process all the previous levels
+        //  Input: >> Hello world
+        //  Result: [blockquote [blockquote [Paragraph ["Hello World"]]]]
         if ($targetLevel > $previousLevel + 1)
         {
             // This will parse the next level recursively until reach
-            // $previousLevel == $targetLevel -1
-            $this->parseBlockquote($ctx, $targetLevel, $previousLevel + 1);
+            // $previousLevel == $targetLevel - 1
+            $this->parseBlockquoteInLevel($ctx, $targetLevel, $previousLevel + 1);
 
             // Populate the current blockquote with the parsed child
             $blockquote->addChild(array_pop($this->output));
         }
 
+        $token = $this->lexer->peekToken();
+
         // If next token is not a blockquote, it means this blockquote
         // is finished, not need to parse anything else
-        if (!$this->hasInput() || $this->peekToken()->type !== Token::Blockquote)
+        if (!$this->lexer->hasInput() || $token->type !== Token::Blockquote)
             return;
 
         // Next token is a Blockquote, but we need to compute the current
         // level before continue
-        $currentLevel = $this->getBlockquoteLevel($this->peekToken());
+        $currentLevel = $this->getBlockquoteLevel($token);
 
         // If the current level is less or equals than previous level
         // we don't need to make anything else here
@@ -288,24 +304,19 @@ class Parser
             return;
 
         // Here we start to parse the current block quote
-        // Consume the blockquote token and clean the whitespaces
-        $this->consumeToken();
-        $this->consumeWhiteSpaces();
+        $this->lexer->nextToken();
 
-        // We compute the source of the blockquote, taking
-        // the token->OriginalValue or token->Value, removing the
-        // Blockquote tokens with the same nesting level, and
-        // processing the children blockquote, that way we give
-        // support to blockquotes to contain any type of markup
-        // element
+        // Because a blockquote allows all the block and inline elements
+        // it is easier to spawn a new parser to process the blockquote's
+        // content isolated from the context of the blockquote itself
         $blockquoteSourceCode = "";
 
         // We will need a Parser
         $parser = new Parser();            
 
-        while ($this->hasInput())
+        while ($this->lexer->hasInput())
         {
-            $token = $this->peekToken();
+            $token = $this->lexer->peekToken();
 
             // If we find a 2NL, we break the blockquote
             if ($token->type === Token::DoubleNewLine)
@@ -315,8 +326,8 @@ class Parser
             // to append the token's value to the StringBuilder
             if ($token->type !== Token::Blockquote)
             {
-                $token = $this->consumeToken();
-                $blockquoteSourceCode .= $token->originalValue ?? $token->value;
+                $token = $this->lexer->nextToken();
+                $blockquoteSourceCode .= substr($this->source, $token->position, $token->length);
                 continue;
             }
 
@@ -334,8 +345,7 @@ class Parser
             // between the Blockquote token and the next one
             if ($newLevel == $currentLevel)
             {
-                $this->consumeToken();
-                $this->consumeWhiteSpaces();
+                $this->lexer->nextToken();
                 continue;
             }
 
@@ -355,7 +365,7 @@ class Parser
             $blockquoteSourceCode = "";
 
             // Process the child BQ
-            $this->parseBlockquote($ctx, $newLevel, $currentLevel);
+            $this->parseBlockquoteInLevel($ctx, $newLevel, $currentLevel);
 
             // Add the child BQ to the current one
             $blockquote->addChild(array_pop($this->output));
@@ -373,43 +383,33 @@ class Parser
 
     private function parseThematicBreak(ParsingContext $ctx) : void
     {
-        $this->consumeToken();
+        $this->lexer->nextToken();
         $this->output[] = new ThematicBreak();
-
-        if (!$this->hasInput())
-            return;
-
-        // If next is a 2NL let caller handle it
-        if ($this->peekToken()->type === Token::DoubleNewLine)
-            return;
-
-        // If just one new line is used, consume it
-        if ($this->peekToken()->type === Token::NewLine)
-            $this->consumeToken();
     }
 
     private function parseHeader(ParsingContext $ctx) : void
     {
-        $token = $this->consumeToken();
+        $token = $this->lexer->nextToken();
 
         $headerType = Header::H1;
 
-        switch ($token->value[0])
+        switch ($token->type)
         {
-            case '~':
+            case Token::Header2:
                 $headerType = Header::H2;
                 break;
-            case '-':
+            case Token::Header3:
                 $headerType = Header::H3;
                 break;
-            case '`':
+            case Token::Header4:
                 $headerType = Header::H4;
                 break;
         }
 
         $header = new Header($headerType);
 
-        // Take last's node children
+        // Pop last element from the output and take its 
+        // children, we don't need it anymore
         $header->takeChildrenFrom(array_pop($this->output));        
         
         $this->output[] = $header;
@@ -417,14 +417,18 @@ class Parser
 
     private function parseCodeBlock(ParsingContext $ctx) : void
     {
-        if (!$this->hasInput())
+        if (!$this->lexer->hasInput())
             return;
 
         // If the CodeBlock is a DmlSource code block, leave this basic code block
-        if ($this->peekToken(1)->type === Token::CodeBlockLang && $this->peekToken(1)->value === "dml-source")
+        if ($this->lexer->peekToken(1)->type === Token::CodeBlockLang)
         {
-            $this->parseDmlSource($ctx);
-            return;
+            $lang_token = $this->lexer->peekToken(1);
+            if (substr($this->source, $lang_token->position, $lang_token->length) === "dml-source")
+            {
+                $this->parseDmlSource($ctx);
+                return;
+            }
         }
 
         // Get a reference to the last node in the linked list
@@ -432,40 +436,40 @@ class Parser
         $lastNode = $this->getLastElement($this->output);
 
         // Save the starting token
-        $startToken = $this->consumeToken();
+        $startToken = $this->lexer->nextToken();
 
         // If the code block starts with !```, it is a code block that
         // allows markup processing, if not, it is a basic block code.
         // Save the current state of the markup processing
-        $oldMarkupProcessingState = $ctx->setMarkupStatus($startToken->value[0] === "!");
+        $oldMarkupProcessingState = $ctx->setMarkupStatus($this->source[$startToken->position] === "!");
 
-        $token = $this->consumeToken(); // Consume the NL or the CodeBlockLang
+        $token = $this->lexer->nextToken(); // Consume the NL or the CodeBlockLang
 
         // If next token is the CodeBlockLang, consume it and save
         // the value to be used in the class attribute
         $lang = NULL;
         if ($token->type === Token::CodeBlockLang)
         {
-            $this->consumeToken(); // NL
-            $lang = $token->value;
+            $this->lexer->nextToken(); // NewLine
+            $lang = substr($this->source, $token->position, $token->length);
         }
 
-        while ($this->hasInput())
+        while ($this->lexer->hasInput())
         {
-            $token = $this->peekToken();
+            $token = $this->lexer->peekToken();
 
             // End the loop if the closing token is found
             if ($token->type === Token::CodeBlock)
             {
-                $this->consumeToken();
+                $this->lexer->nextToken();
                 break;
             }
 
             // If the escaped token is a CodeBlock, ignore the Escape token and consume the CodeBlock
-            if ($token->type === Token::Escape && $this->peekToken(1)->type === Token::CodeBlock)
+            if ($token->type === Token::Escape && $this->lexer->peekToken(1)->type === Token::CodeBlock)
             {
-                $this->consumeToken(); // Ignore Escape
-                $token = $this->consumeToken(); // Consume CodeBlock
+                $this->lexer->nextToken(); // Ignore Escape
+                $token = $this->lexer->nextToken(); // Consume CodeBlock
             }
 
             // If the markup is not enabled or there's no inline element parser for the token type, use ParseText.
@@ -503,24 +507,24 @@ class Parser
 
     private function parseDmlSource(ParsingContext $ctx) : void
     {
-        $this->consumeToken(); // Consume CodeBlock
-        $this->consumeToken(); // Consume CodeBlockLang
-        $this->consumeToken(); // Consume NewLine
+        $this->lexer->nextToken(); // Consume CodeBlock
+        $this->lexer->nextToken(); // Consume CodeBlockLang
+        $this->lexer->nextToken(); // Consume NewLine
 
         // This will contain all the tokens withing the code block
         $source = [];
 
-        while ($this->hasInput())
+        while ($this->lexer->hasInput())
         {
-            $token = $this->consumeToken();
+            $token = $this->lexer->nextToken();
 
             // Break if we found the closing token
             if ($token->type === Token::CodeBlock)
                 break;
 
             // If the escaped token is a CodeBlock, ignore the Escape and take the CodeBlock
-            if ($token->type === Token::Escape && $this->peekToken()->type === Token::CodeBlock)
-                $token = $this->consumeToken();
+            if ($token->type === Token::Escape && $this->lexer->peekToken()->type === Token::CodeBlock)
+                $token = $this->lexer->nextToken();
 
             $source[] = $token;
         }
@@ -531,8 +535,7 @@ class Parser
         // Process the source as plain text
         foreach ($source as $token)
         {
-            $code->addChild(new Text(str_replace("<", "&lt;", ($token->originalValue ?? $token->value))));
-
+            $code->addChild(new Text(str_replace("<", "&lt;", substr($this->source, $token->position, $token->length))));
         }
 
         // Add the CodeBlock with the source
@@ -542,7 +545,7 @@ class Parser
         $parser = new Parser();
         $source_str = "";
         foreach ($source as $token)
-            $source_str .= $token->originalValue ?? $token->value;
+            $source_str .= substr($this->source, $token->position, $token->length);
         $doc = $parser->parse($source_str);
 
         // Get body's children of the parsed document
@@ -563,24 +566,25 @@ class Parser
         $lastNode = $this->getLastElement($this->output);
 
         // Consume the Preformatted token
-        $this->consumeToken();
+        $this->lexer->nextToken();
 
         // Disable markup processing. Save the current markup processing state
         $oldMarkupProcessingState = $ctx->setMarkupStatus(false);
 
-        while ($this->hasInput())
+        while ($this->lexer->hasInput())
         {
-            $token = $this->peekToken();
+            $token = $this->lexer->peekToken();
 
             // Break on 2NL
             if ($token->type === Token::DoubleNewLine)
                 break;
 
             // Consume the indentation after a new line
-            if ($token->type === Token::NewLine && $this->peekToken(1)->type === Token::Indentation)
+            $next_token = $this->lexer->peekToken(1);
+            if ($token->type === Token::NewLine && $next_token != NULL && $next_token->type === Token::Indentation)
             {
-                $this->consumeToken();
-                $this->consumeToken();
+                $this->lexer->nextToken();
+                $this->lexer->nextToken();
                 $this->output[] = new Text("\n");
                 continue;
             }
@@ -607,31 +611,22 @@ class Parser
         $this->output[] = $pre;
     }
 
-    private function getListType(Token $listToken) : int
-    {
-        return $listToken->value === "# " 
-                ? Element::OrderedList
-                : ($listToken->value[0] == '['
-                    ? Element::TodoList
-                    : Element::UnorderedList);
-    }
-
     private function getOrderedListStartIndex(Token $token) : ?int
     {
-        if ($token->originalValue == NULL || strlen($token->originalValue) <= 2)
+        // If the first element is not a number, no need to try
+        if (!\is_numeric($this->source[$token->position]))
             return NULL;
 
-        $value = substr($token->originalValue, 0, strlen($token->originalValue) - 2);
+        // The -2 is the space and the special char after the number:
+        //  "1. "
+        //  "2. "
+        //  "3. "
+        $value = substr($this->source, $token->position, $token->length - 2);
 
         if (is_numeric($value))
             return intval($value);
 
         return NULL;
-    }
-
-    private function isSameListType(Token $a, Token $b) : bool
-    {
-        return $a->type == $b->type && $a->value[0] == $b->value[0] && ($a->originalValue == $b->originalValue || $a->originalValue != NULL);
     }
 
     private function parseList(ParsingContext $ctx) : void
@@ -644,35 +639,35 @@ class Parser
         // indents contains the current list's indentation
         $indents = 0;
         
-        while ($this->peekToken($indents)->type === Token::Indentation)
+        while ($this->lexer->peekToken($indents)->type === Token::Indentation)
             $indents++;
 
         // This tokens contains the type of list (we step over '$indents' tokens)
-        $listTypeToken = $this->peekToken($indents);
-
-        // Compute the ListType
-        $listType = $this->getListType($listTypeToken);
+        $listTypeToken = $this->lexer->peekToken($indents);
 
         // Compute the start index if the list is an Ordered list
-        $listStartIndex = $listType == Element::OrderedList ? $this->getOrderedListStartIndex($listTypeToken) : NULL;
+        $listStartIndex = $listTypeToken->type === Token::NumberedListItem ? $this->getOrderedListStartIndex($listTypeToken) : NULL;
 
         // Use a flag to know if this current list is an enumerated list
-        $isEnumeratedList = $listStartIndex !== NULL;
+        $isNumberedList = $listStartIndex !== NULL;
 
         // Keep track of the last index (enumerated lists)
         $lastIndex = NULL;
 
-        while ($this->hasInput())
+        while ($this->lexer->hasInput())
         {
             // Check the current indentation level
             $currentIndents = 0;
-            while ($this->peekToken($currentIndents)->type === Token::Indentation)
+            while ($this->lexer->peekToken($currentIndents)->type === Token::Indentation)
                 $currentIndents++;
 
-            $token = $this->peekToken($currentIndents);
+            $token = $this->lexer->peekToken($currentIndents);
 
             // This tokens must be a list item
-            if ($token->type !== Token::ListItem)
+            if ($token->type !== Token::LabeledListItem 
+                && $token->type !== Token::NumberedListItem
+                && $token->type !== Token::UnorderedListItem 
+                && $token->type !== Token::TodoListItem)
                 break;
 
             // If $currentIndents is lesser than the original $indents, we need to go
@@ -680,20 +675,17 @@ class Parser
             if ($currentIndents < $indents)
                 break;
 
-            // Get the current token's list type
-            $currentType = $this->getListType($token);
-
             // If the list type changes, and we are on the same indentation level, we need to
             // close this list to start a new one that will be sibling of this one
-            if (!$this->isSameListType($listTypeToken, $token) && $currentIndents == $indents)
+            if ($listTypeToken->type !== $token->type && $currentIndents == $indents)
                 break;
 
             // Ordered lists might break if they are "numerated"
-            if ($isEnumeratedList && $currentIndents == $indents)
+            if ($isNumberedList && $currentIndents == $indents)
             {
                 // Check if $lastIndex is poupulted, first time it is NULL
                 // Check if $currentType is ordered too
-                if ($lastIndex !== NULL && $currentType === Element::OrderedList)
+                if ($lastIndex !== NULL && $token->type === Token::NumberedListItem)
                 {
                     // Compute the currentIndex
                     $currentIndex = $this->getOrderedListStartIndex($token);
@@ -729,12 +721,23 @@ class Parser
         // Create the ListNode and populate with the ListItemNodes
         $list = NULL;
         
-        if ($listType === Element::OrderedList)
-            $list = new OrderedList();
-        else if ($listType === Element::TodoList)
+        if ($listTypeToken->type === Token::NumberedListItem)
+        {
+            $list = new OrderedList(OrderedList::Numeric);
+        }
+        else if ($listTypeToken->type === Token::LabeledListItem)
+        {
+            $fc = $this->source[$listTypeToken->position];
+            $list = new OrderedList($fc >= 'a' && $fc <= 'z' ? OrderedList::LowerAlpha : OrderedList::UpperAlpha);
+        }
+        else if ($listTypeToken->type === Element::TodoList)
+        {
             $list = new TodoList();
+        }
         else
+        {
             $list = new UnorderedList();
+        }
 
         // If the list is enumerated, set the start index
         if ($listStartIndex !== NULL)
@@ -751,23 +754,7 @@ class Parser
 
         // Add the list to the output
         $this->output[] = $list;
-    }
-
-    private function findLastTextElement(?Element $element) : ?Element
-    {
-        if ($element == NULL)
-            return NULL;
-
-        $tmp = $element;
-        do {
-            if ($tmp instanceof Text)
-                return $tmp;
-
-            $tmp = $this->getLastElement($tmp->getChildren());
-        } while ($tmp !== NULL);
-
-        return NULL;
-    }
+    }    
 
     private function parseListItem(ParsingContext $ctx) : void
     {
@@ -776,25 +763,37 @@ class Parser
         $lastNode = $this->getLastElement($this->output);
 
         // Each list item is responsible of removing the indentation
-        while ($this->peekToken()->type === Token::Indentation)
-            $this->consumeToken();
+        while ($this->lexer->peekToken()->type === Token::Indentation)
+            $this->lexer->nextToken();
 
         // Retrieve the token that contains the list type info
-        $listToken = $this->consumeToken();
+        $listToken = $this->lexer->nextToken();
 
-        while ($this->hasInput())
+        while ($this->lexer->hasInput())
         {
-            $token = $this->peekToken();
+            $token = $this->lexer->peekToken();
 
             // Break on ListItem or Indentation to let ParseList parse the new items
             // Break on DoubleNewLine to let some caller in the chain to handle it
-            if ($token->type === Token::ListItem || $token->type === Token::DoubleNewLine || $token->type === Token::Indentation)
+            if ($token->type === Token::LabeledListItem
+                || $token->type === Token::NumberedListItem
+                || $token->type === Token::UnorderedListItem
+                || $token->type === Token::TodoListItem
+                || $token->type === Token::DoubleNewLine 
+                || $token->type === Token::Indentation)
+            {
+                // No need to add a line break if we are closing the paragraph
+                $last = $this->getLastElement($this->output);
+                if ($last != NULL && $last instanceof LineBreak)
+                    \array_pop($this->output);
+
                 break;
+            }
 
             // Just one new line means the content is still part of the current item, consume it and continue
             if ($token->type === Token::NewLine)
             {
-                $this->consumeToken();
+                $this->lexer->nextToken();
 
                 $textElement = $this->findLastTextElement($this->getLastElement($this->output));
 
@@ -814,8 +813,8 @@ class Parser
         }
 
         // Todo items use a different implementation
-        $listItem = $this->getListType($listToken) === Element::TodoList 
-                        ? new TodoListItem(strlen($listToken->value) > 1 && $listToken->value[0] == '[' && strtolower($listToken->value)[1] == 'x')
+        $listItem = $listToken->type === Token::TodoListItem
+                        ? new TodoListItem($this->source[$listToken->position + 1] == 'x' || $this->source[$listToken->position + 1] == 'X')
                         : new ListItem();
 
         // Todos already have children, we need to get the base index to insert new nodes
@@ -832,19 +831,19 @@ class Parser
     private function parseEscapeBlock(ParsingContext $ctx) : void
     {
         // Consume the starting token ``
-        $this->consumeToken();
+        $this->lexer->nextToken();
 
         // // Disable the markup processing. Save the markup processing state
         $oldMarkupProcessingState = $ctx->setMarkupStatus(false);
 
-        while ($this->hasInput())
+        while ($this->lexer->hasInput())
         {
-            $token = $this->PeekToken();
+            $token = $this->lexer->PeekToken();
 
             // Break when we found the closing token ``
             if ($token->type === Token::EscapeBlock)
             {
-                $this->consumeToken();
+                $this->lexer->nextToken();
                 break;
             }
 
@@ -858,7 +857,8 @@ class Parser
 
     private function parseNewLine(ParsingContext $ctx) : void
     {
-        $this->output[] = new Text($this->consumeToken()->value);
+        $this->lexer->nextToken();
+        $this->output[] = new Text("\n");
     }
 
     private function parseBold(ParsingContext $ctx) : void
@@ -887,7 +887,7 @@ class Parser
         // is [not] an inline code tag
         $tmp = NULL;
         $i = 0;
-        while (($tmp = $this->peekToken(++$i)) != NULL)
+        while (($tmp = $this->lexer->peekToken(++$i)) != NULL)
         {
             if ($tmp->type === Token::InlineCode || $tmp->type === Token::DoubleNewLine)
                 break;
@@ -914,28 +914,29 @@ class Parser
         $lastNode = $this->getLastElement($this->output);
 
         // Keep the start token, we could need it 
-        $startToken = $this->consumeToken();
+        $startToken = $this->lexer->nextToken();
 
         while (true)
         {
             // If we run out of tokens, we need to place the starting token after lastNode (starting point).
             // If lastNode is NULL, it means we don't have elements in the Output, so place the start token
-            if (!$this->hasInput())
+            if (!$this->lexer->hasInput())
             {
+                $text = new Text(substr($this->source, $startToken->position, $startToken->length));
                 if ($lastNode != NULL)
                 {
                     $key = array_search($lastNode, $this->output, true);
-                    array_splice($this->output, $key + 1, 0, [ new Text($startToken->value) ]);
+                    array_splice($this->output, $key + 1, 0, [ $text ]);
                 }
                 else
                 {
-                    array_unshift($this->output, new Text($startToken->value));
+                    array_unshift($this->output, $text);
                 }
                 return;
             }
 
             // Keep parsing more inline elements
-            $token = $this->peekToken();
+            $token = $this->lexer->peekToken();
 
             // The 2-NL rule is handled at block elements, so if we find two new lines
             // we need to return to the caller, but because the 2-NL will end the current
@@ -945,7 +946,7 @@ class Parser
             if ($token->type === Token::DoubleNewLine)
             {
                 $key = array_search($lastNode, $this->output, true);
-                array_splice($this->output, $key + 1, 0, [ new Text($startToken->value) ]);
+                array_splice($this->output, $key + 1, 0, [ new Text(substr($this->source, $startToken->position, $startToken->length)) ]);
                 return;
             }
 
@@ -953,7 +954,7 @@ class Parser
             // and break the loop
             if ($token->type === $close)
             {
-                $this->consumeToken();
+                $this->lexer->nextToken();
                 break;
             }
 
@@ -979,20 +980,20 @@ class Parser
 
         // Consume the start token, we might need it if this is not
         // a valid link
-        $startToken = $this->consumeToken();
+        $startToken = $this->lexer->nextToken();
 
         // We need to parse the link's content, but if it is empty
         // we won't create a LinkNode
         $isValidLink = false;
 
-        while ($this->hasInput())
+        while ($this->lexer->hasInput())
         {
-            $token = $this->peekToken();
+            $token = $this->lexer->peekToken();
 
             // Pipe divide link's sections
             if ($token->type === Token::Pipe)
             {
-                $this->consumeToken();
+                $this->lexer->nextToken();
                 break;
             }
 
@@ -1003,7 +1004,7 @@ class Parser
             $this->getInlineParser($ctx, $token)($ctx);
 
             // Check if the link's content is not empty
-            $isValidLink |= $token->type !== Token::Text || strlen(trim($token->value)) > 0;
+            $isValidLink |= $token->type !== Token::Text || $token->length > 0;
         }
 
         // We have content, we have a link. Now we need to parse (if available)
@@ -1012,36 +1013,38 @@ class Parser
         $title = "";
 
         // Href
-        while ($this->hasInput())
+        while ($this->lexer->hasInput())
         {
-            $token = $this->peekToken();
+            $token = $this->lexer->peekToken();
 
             if ($token->type === Token::Pipe)
             {
-                $this->consumeToken();
+                $this->lexer->nextToken();
                 break;
             }
 
             if ($token->type === Token::LinkEnd || $token->type === Token::DoubleNewLine)
                 break;
 
-            $href .= $this->consumeToken()->value;
+            $token = $this->lexer->nextToken();
+            $href .= substr($this->source, $token->position, $token->length);
         }
 
         // Title
-        while ($this->hasInput())
+        while ($this->lexer->hasInput())
         {
-            $token = $this->peekToken();
+            $token = $this->lexer->peekToken();
 
             if ($token->type === Token::LinkEnd || $token->type === Token::DoubleNewLine)
                 break;
 
-            $title .= $this->consumeToken()->value;
+            $token = $this->lexer->nextToken();
+            $title .= substr($this->source, $token->position, $token->length);
         }
 
 
         // If next $token is not a LinkEnd, it is not a valid link
-        $isValidLink &= $this->peekToken()->type === Token::LinkEnd;
+        $isValidLink &= $this->lexer->peekToken()->type === Token::LinkEnd;
 
 
         // If the final $token is not a LinkEnd, it is not
@@ -1050,7 +1053,7 @@ class Parser
         {
             // Add the starting $token as plain text
             $key = array_search($lastNode, $this->output, true);
-            array_splice($this->output, $key + 1, 0, [ new Text($startToken->value) ]);
+            array_splice($this->output, $key + 1, 0, [ new Text(substr($this->source, $startToken->position, $startToken->length)) ]);
 
             // We need to parse the href and title attributes, because
             // we consumed them as plain text before
@@ -1090,7 +1093,7 @@ class Parser
         }
 
         // Consume the LinkEnd $token
-        $this->consumeToken();
+        $this->lexer->nextToken();
 
         // Check if the link is a link to a reference
         $href = trim($href);
@@ -1132,21 +1135,21 @@ class Parser
 
         // Consume the start token, we might need it if this is not
         // a valid image
-        $startToken = $this->consumeToken();
+        $startToken = $this->lexer->nextToken();
 
         $isValidImage = true;
 
         // src
         $source = "";
 
-        while ($this->hasInput())
+        while ($this->lexer->hasInput())
         {
-            $token = $this->peekToken();
+            $token = $this->lexer->peekToken();
 
             // Pipe close the title section, consume it and break
             if ($token->type === Token::Pipe)
             {
-                $this->consumeToken();
+                $this->lexer->nextToken();
                 break;
             }
 
@@ -1154,7 +1157,8 @@ class Parser
             if ($token->type === Token::ImageEnd || $token->type === Token::DoubleNewLine)
                 break;
 
-            $source .= $this->consumeToken()->value;
+            $token = $this->lexer->nextToken();
+            $source .= substr($this->source, $token->position, $token->length);
         }
 
         // If src is empty, it is not a valid img tag
@@ -1164,14 +1168,14 @@ class Parser
         // title
         $title = "";
 
-        while ($this->hasInput())
+        while ($this->lexer->hasInput())
         {
-            $token = $this->peekToken();
+            $token = $this->lexer->peekToken();
 
             // Pipe close the title section, consume it and break
             if ($token->type === Token::Pipe)
             {
-                $this->consumeToken();
+                $this->lexer->nextToken();
                 break;
             }
 
@@ -1179,26 +1183,28 @@ class Parser
             if ($token->type === Token::ImageEnd || $token->type === Token::DoubleNewLine)
                 break;
 
-            $title .= $this->consumeToken()->value;
+            $token = $this->lexer->nextToken();
+            $title .= substr($this->source, $token->position, $token->length);
         }
 
         // alt
         $altTitle = "";
         
-        while ($this->hasInput())
+        while ($this->lexer->hasInput())
         {
-            $token = $this->peekToken();
+            $token = $this->lexer->peekToken();
 
             // Image end or 2NL break, because of end of image or invalid image
             if ($token->type === Token::ImageEnd || $token->type === Token::DoubleNewLine)
                 break;
 
-            $altTitle .= $this->consumeToken()->value;
+            $token = $this->lexer->nextToken();
+            $altTitle .= substr($this->source, $token->position, $token->length);
         }
 
 
         // If next token is not the ImageEnd, it is an invalid img tag
-        $isValidImage &= $this->hasInput() && $this->peekToken()->type === Token::ImageEnd;
+        $isValidImage &= $this->lexer->hasInput() && $this->lexer->peekToken()->type === Token::ImageEnd;
 
 
         // If the final token is not a ImageEnd, it is not
@@ -1207,7 +1213,7 @@ class Parser
         {
             // Add the starting token as plain text
             $key = array_search($lastNode, $this->output, true);
-            array_splice($this->output, $key + 1, 0, [ new Text($startToken->value) ]);
+            array_splice($this->output, $key + 1, 0, [ new Text(substr($this->source, $startToken->position, $startToken->length)) ]);
 
             // We need to parse the srouce, title, and alt title attributes, because
             // we consumed them as plain text before
@@ -1246,7 +1252,7 @@ class Parser
             // Parse the alt title
             $alt_title_doc = $parser->parse($altTitle);
 
-            if (count($$alt_title_doc->getChildren()) > 0)
+            if (count($alt_title_doc->getChildren()) > 0)
             {
                 $this->output[] = new Text("|");
 
@@ -1263,7 +1269,7 @@ class Parser
         }
 
         // Consume }]
-        $this->consumeToken();
+        $this->lexer->nextToken();
 
         $img = new Image($title, $source, $altTitle);
 
@@ -1278,7 +1284,7 @@ class Parser
         $lastNode = $this->getLastElement($this->output);
 
         // Consume and save the startToken, we might need it later
-        $startToken = $this->consumeToken();
+        $startToken = $this->lexer->nextToken();
 
         // We might need th colon token
         $colonToken = NULL;
@@ -1288,9 +1294,9 @@ class Parser
         // Parse the content between | and : (href)
         $href = "";
 
-        while ($this->hasInput())
+        while ($this->lexer->hasInput())
         {
-            $token = $this->peekToken();
+            $token = $this->lexer->peekToken();
 
             // If it is a DoubleNewLine, it is an invalid reference
             if ($token->type === Token::DoubleNewLine)
@@ -1304,21 +1310,22 @@ class Parser
                 break;
 
             // Concatenate all tokens as plain text (it is a HTML attribute's value)
-            $href .= $this->consumeToken()->value;
+            $token = $this->lexer->nextToken();
+            $href .= substr($this->source, $token->position, $token->length);
         }
 
-        if ($this->peekToken()->type !== Token::Colon)
+        if ($this->lexer->peekToken()->type !== Token::Colon)
             $validReference = false;
         else
-            $colonToken = $this->consumeToken();
+            $colonToken = $this->lexer->nextToken();
 
         // If there is no more input, it is not a valid reference
-        $validReference &= $this->hasInput();
+        $validReference &= $this->lexer->hasInput();
         
         // We need to parse the Reference's title
-        while ($validReference && $this->hasInput())
+        while ($validReference && $this->lexer->hasInput())
         {
-            $token = $this->peekToken();
+            $token = $this->lexer->peekToken();
 
             // Break on 2NL rule and mark the parsing as invalid
             if ($token->type === Token::DoubleNewLine)
@@ -1335,7 +1342,7 @@ class Parser
         }
 
         // If the next token is not a ReferenceEnd, it is not a valid reference
-        if ($this->peekToken()->type !== Token::Pipe)
+        if ($this->lexer->peekToken()->type !== Token::Pipe)
             $validReference = false;
 
         // We need to rollback the parsing
@@ -1343,7 +1350,7 @@ class Parser
         {
             // Insert the pipe as plain text
             $key = array_search($lastNode, $this->output, true);
-            array_splice($this->output, $key + 1, 0, [ new Text($startToken->value) ]);
+            array_splice($this->output, $key + 1, 0, [ new Text(substr($this->source, $startToken->position, $startToken->length)) ]);
 
             // Parse the href, it might contain markup elements
             $parser = new Parser();
@@ -1367,14 +1374,14 @@ class Parser
             // If $colonToken has been found, we need to insert it in the right position
             if ($colonToken != NULL)
             {
-                array_splice($this->output, $key + 1, 0, [ $colonToken->value ]);
+                array_splice($this->output, $key + 1, 0, [ substr($this->source, $colonToken->position, $colonToken->length) ]);
             }
 
             return;
         }
 
         // Consume the ReferenceEnd
-        $this->consumeToken();
+        $this->lexer->nextToken();
 
         // Create the new ReferenceNode
         $reference = new Reference(trim($href));
@@ -1389,9 +1396,9 @@ class Parser
         $lastNode = $this->getLastElement($this->output);
 
         // Process the reference siblings, "logically" we consider it a block (see below)
-        while ($this->hasInput())
+        while ($this->lexer->hasInput())
         {
-            $token = $this->peekToken();
+            $token = $this->lexer->peekToken();
 
             // Break on 2NL
             if ($token->type === Token::DoubleNewLine)
@@ -1443,17 +1450,17 @@ class Parser
 
     private function parseEscape(ParsingContext $ctx) : void
     {
-        $this->consumeToken();
+        $this->lexer->nextToken();
 
         // If the escaped token is not an especial token
         // we just add a backslash
-        if ($this->peekToken()->type === Token::Text)
+        if ($this->lexer->peekToken()->type === Token::Text)
         {
             $this->output[] = new Text("\\");
         }
-        else if ($this->peekToken()->type === Token::Lt)
+        else if ($this->lexer->peekToken()->type === Token::Lt)
         {
-            $this->consumeToken();
+            $this->lexer->nextToken();
             $this->output[] = new Text("&lt;");
         }
         else
@@ -1466,8 +1473,8 @@ class Parser
 
     private function parseText(ParsingContext $ctx) : void
     {
-        $token = $this->consumeToken();
-        $value = $token->value;
+        $token = $this->lexer->nextToken();
+        $value = substr($this->source, $token->position, $token->length);
 
         // Sanitize the '<'
         if (!$ctx->isMarkupEnabled() && isset($value[0]))

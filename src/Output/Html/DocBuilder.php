@@ -237,6 +237,11 @@ class DocBuilder
         $ol->attributes = \array_merge($ol->attributes, $dmlElement->attributes);
         $ol->properties = \array_merge($ol->properties, $dmlElement->properties);
 
+        if ($dmlElement->style == \Dml\Parser\Elements\OrderedList::LowerAlpha)
+            $ol->attributes['style'] = 'list-style: lower-alpha';
+        else if ($dmlElement->style == \Dml\Parser\Elements\OrderedList::UpperAlpha)
+            $ol->attributes['style'] = 'list-style: upper-alpha';
+
         foreach ($dmlElement->getChildren() as $childElement)
             $this->visitElement($childElement, $ol);
 
@@ -272,10 +277,11 @@ class DocBuilder
             $input = new Tag("input", false);
             $input->attributes["type"] = "checkbox";
             $input->attributes["disabled"] = "disabled";
-            $li->addChild($input);
-            
+
             if ($dmlElement->completed)
-                $li->attributes["checked"] = "checked";
+                $input->attributes["checked"] = "checked";
+
+            $li->addChild($input);
         }
 
         foreach ($dmlElement->getChildren() as $childElement)

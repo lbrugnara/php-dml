@@ -19,21 +19,26 @@ class Token {
     const Strikethrough = 11;
     const Text = 12;
     const Blockquote = 13;
-    const HeaderStart = 14;
-    const HeaderEnd = 15;
-    const ListItem = 16;
-    const Pipe = 17;
-    const Reference = 18;
-    const Colon = 19;
-    const LinkStart = 20;
-    const LinkEnd = 21;
-    const ImageStart = 22;
-    const ImageEnd = 23;
-    const Escape = 24;
-    const EscapeBlock = 25;
-    const ThematicBreak = 26;
-    const BlockquoteEndMarker = 27;
-    const Lt = 28;
+    const Header1 = 14;
+    const Header2 = 15;
+    const Header3 = 16;
+    const Header4 = 17;
+    const LabeledListItem = 18;
+    const NumberedListItem = 19;
+    const TodoListItem = 20;
+    const UnorderedListItem = 21;
+    const Pipe = 22;
+    const Reference = 23;
+    const Colon = 24;
+    const LinkStart = 25;
+    const LinkEnd = 26;
+    const ImageStart = 27;
+    const ImageEnd = 28;
+    const Escape = 29;
+    const EscapeBlock = 30;
+    const ThematicBreak = 31;
+    const BlockquoteEndMarker = 32;
+    const Lt = 33;
 
     /**
      * @var int
@@ -41,25 +46,23 @@ class Token {
     public $type;
 
     /**
-     * @var string
+     * Token start position
+     *
+     * @var int
      */
-    public $value;
+    public $position;
 
     /**
-     * @var string
+     * Token length
+     *
+     * @var int
      */
-    public $originalValue;
+    public $length;
 
-    /**
-     * @var bool
-     */
-    public $isRepresentable;
-
-    public function __construct(int $type, string $value, ?string $originalValue = NULL, bool $isRepresentable = true)
+    public function __construct(int $type, int $position, int $length)
     {
         $this->type = $type;
-        $this->value = $value;
-        $this->originalValue = $originalValue;
-        $this->isRepresentable = $isRepresentable;
+        $this->position = $position;
+        $this->length = $length;
     }
 }

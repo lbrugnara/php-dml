@@ -4,21 +4,41 @@ namespace Dml\Parser;
 
 class LexerContext
 {
-    const Normal = 0;
+    const Markup    = 0x0;
+    const Text      = 0x1;
 
     /**
      * @var array
      */
-    public $state;
+    private $state;
 
     /**
-     * @var bool
+     * State array index
+     *
+     * @var int
      */
-    public $peek;
+    private $index;
 
-    public function __construct(bool $peek = false)
+    public function __construct()
     {
-        $this->state = [ self::Normal ];
-        $this->peek = $peek;
+        $this->state = [ self::Markup ];
+        $this->index = 0;
+    }
+
+    public function state() : int
+    {
+        return $this->state[$this->index];
+    }
+
+    public function pushState(int $state) : void
+    {
+        $this->state[] = $state;
+        $this->index++;
+    }
+
+    public function popState() : int
+    {
+        $this->index--;
+        return array_pop($this->state);
     }
 }
