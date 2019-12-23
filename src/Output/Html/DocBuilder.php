@@ -118,16 +118,16 @@ class DocBuilder
 
     private function visitInlineCode(\Dml\Parser\Elements\Code $dmlElement, Tag $parentTag) : Tag
     {
-        $blockquote = new Code(false);
+        $code = new Code(false);
 
-        $blockquote->attributes = \array_merge($blockquote->attributes, $dmlElement->attributes);
-        $blockquote->properties = \array_merge($blockquote->properties, $dmlElement->properties);
+        $code->attributes = \array_merge($code->attributes, $dmlElement->attributes);
+        $code->properties = \array_merge($code->properties, $dmlElement->properties);
 
         foreach ($dmlElement->getChildren() as $childElement)
-            $this->visitElement($childElement, $blockquote);
+            $this->visitElement($childElement, $code);
 
-        $parentTag->addChild($blockquote);
-        return $blockquote;
+        $parentTag->addChild($code);
+        return $code;
     }
 
     private function visitGroup(\Dml\Parser\Elements\Group $dmlElement, Tag $parentTag) : Tag

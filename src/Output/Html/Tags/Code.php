@@ -20,5 +20,9 @@ class Code extends Tag
         {
             $this->attributes["style"] = "display: block; white-space: pre-wrap";
         }
+        else
+        {
+            $this->attributes["style"] = "white-space: pre;";
+        }
     }
 }

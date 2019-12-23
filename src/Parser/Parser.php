@@ -219,16 +219,19 @@ class Parser
 
             $this->inlineParsers[$token->type]($ctx);
 
-            $textElement = $this->findLastTextElement($this->getLastElement($this->output));
-
-            if ($textElement !== NULL)
+            if ($this->lexer->hasInput() && $this->lexer->peekToken()->type == Token::NewLine)
             {
-                // If the paragraph ends with a period, we add
-                // a line break to represent the grammatical paragraph
-                $it = trim($textElement->content);
-                $length = strlen($it);
-                if ($length > 0 && $it[$length-1] == '.')
-                    $this->output[] = new LineBreak();
+                $textElement = $this->findLastTextElement($this->getLastElement($this->output));
+
+                if ($textElement !== NULL)
+                {
+                    // If the paragraph ends with a period, we add
+                    // a line break to represent the grammatical paragraph
+                    $it = trim($textElement->content);
+                    $length = strlen($it);
+                    if ($length > 0 && $it[$length-1] == '.')
+                        $this->output[] = new LineBreak();
+                }
             }
         }
 
